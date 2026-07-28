@@ -54,13 +54,24 @@ func effectiveVersion() string {
 	if info.Main.Version != "" && info.Main.Version != "(devel)" {
 		return info.Main.Version
 	}
+	modified := false
+	revision := ""
 	for _, setting := range info.Settings {
-		if setting.Key == "vcs.revision" && setting.Value != "" {
-			if len(setting.Value) > 12 {
-				return setting.Value[:12]
-			}
-			return setting.Value
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
 		}
+	}
+	if revision != "" {
+		if len(revision) > 12 {
+			revision = revision[:12]
+		}
+		if modified {
+			revision += "-dirty"
+		}
+		return revision
 	}
 	return version
 }
@@ -148,19 +159,24 @@ func run(logger *slog.Logger) error {
 	// checked lazily, per tool call, so the docs/starter-kit tools keep
 	// working regardless of whether Docker is available.
 	instSvc := instances.NewService()
+	if err := instSvc.ConfigError(); err != nil {
+		logger.Warn("instance storage configuration invalid; instance tools will return errors", "err", err)
+	}
 	logger.Info("instance service ready",
 		"base_dir", instSvc.BaseDir(),
 		"default_image", instSvc.DefaultImageTag(),
 	)
-	go func() {
-		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		if err := instSvc.EnsureAvailable(checkCtx); err != nil {
-			logger.Warn("Docker not available; instance tools will report errors until it is", "err", err)
-			return
-		}
-		logger.Info("Docker is available")
-	}()
+	if instSvc.ConfigError() == nil {
+		go func() {
+			checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			if err := instSvc.EnsureAvailable(checkCtx); err != nil {
+				logger.Warn("Docker not available; instance tools will report errors until it is", "err", err)
+				return
+			}
+			logger.Info("Docker is available")
+		}()
+	}
 
 	// Create the MCP server.
 	s := mcp.NewServer(&mcp.Implementation{

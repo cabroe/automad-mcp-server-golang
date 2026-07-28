@@ -16,9 +16,10 @@ import (
 // labeling, and safety-check conventions described in the instances.go
 // package doc comment.
 type Service struct {
-	runner  *Runner
-	baseDir string
-	image   string
+	configErr error
+	runner    *Runner
+	baseDir   string
+	image     string
 }
 
 // NewService creates a Service using default settings, configurable via:
@@ -36,10 +37,8 @@ func NewService() *Service {
 		baseDir = filepath.Join(home, ".automad-mcp-server", "instances")
 	}
 
-	baseDir, err := canonicalBaseDir(baseDir)
-	if err != nil {
-		// Preserve a deterministic path and let later filesystem operations
-		// return their concrete error instead of silently switching roots.
+	baseDir, configErr := canonicalBaseDir(baseDir)
+	if configErr != nil {
 		baseDir, _ = filepath.Abs(baseDir)
 	}
 
@@ -49,11 +48,15 @@ func NewService() *Service {
 	}
 
 	return &Service{
-		runner:  NewRunner(),
-		baseDir: baseDir,
-		image:   image,
+		configErr: configErr,
+		runner:    NewRunner(),
+		baseDir:   baseDir,
+		image:     image,
 	}
 }
+
+// ConfigError reports invalid instance storage configuration.
+func (s *Service) ConfigError() error { return s.configErr }
 
 // BaseDir returns the directory under which every instance's data lives
 // (each instance gets its own subdirectory named after it).
@@ -65,6 +68,9 @@ func (s *Service) DefaultImageTag() string { return s.image }
 
 // EnsureAvailable checks that Docker is installed and its daemon is reachable.
 func (s *Service) EnsureAvailable(ctx context.Context) error {
+	if s.configErr != nil {
+		return fmt.Errorf("invalid instance storage configuration: %w", s.configErr)
+	}
 	ctx, cancel := context.WithTimeout(ctx, dockerAvailabilityTimeout)
 	defer cancel()
 	return s.runner.EnsureAvailable(ctx)
@@ -208,10 +214,14 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 		}
 		return nil, &NotReadyError{Instance: inst, Cause: err}
 	}
-	if created.HostPort == 0 {
-		return nil, &NotReadyError{Instance: created, Cause: fmt.Errorf("Docker did not expose an assigned host port")}
+	ready, err := s.getUnchecked(ctx, name)
+	if err != nil {
+		return nil, err
 	}
-	return created, nil
+	if ready.HostPort == 0 {
+		return nil, &NotReadyError{Instance: ready, Cause: fmt.Errorf("Docker did not expose an assigned host port")}
+	}
+	return ready, nil
 }
 
 // ensureContainerNameAvailable detects collisions with containers not managed
@@ -376,12 +386,17 @@ func (s *Service) Remove(ctx context.Context, name string, deleteData bool) (Rem
 			if pathErr != nil {
 				return result, pathErr
 			}
-			if _, statErr := os.Stat(target); errors.Is(statErr, os.ErrNotExist) {
+			info, statErr := os.Lstat(target)
+			if errors.Is(statErr, os.ErrNotExist) {
 				return result, fmt.Errorf("no retained data found for instance %q", name)
 			} else if statErr != nil {
 				return result, fmt.Errorf("checking retained data for instance %q: %w", name, statErr)
 			}
-			if err := os.RemoveAll(target); err != nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				if err := os.Remove(target); err != nil {
+					return result, err
+				}
+			} else if err := os.RemoveAll(target); err != nil {
 				return result, err
 			}
 			result.DataDeleted = true
@@ -403,7 +418,15 @@ func (s *Service) Remove(ctx context.Context, name string, deleteData bool) (Rem
 		if pathErr != nil {
 			return result, pathErr
 		}
-		if err := os.RemoveAll(target); err != nil {
+		info, statErr := os.Lstat(target)
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return result, fmt.Errorf("checking instance data directory: %w", statErr)
+		}
+		if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(target); err != nil {
+				return result, fmt.Errorf("instance %q removed, but deleting its data symlink failed: %w", name, err)
+			}
+		} else if err := os.RemoveAll(target); err != nil {
 			return result, fmt.Errorf("instance %q removed, but deleting its data directory failed: %w", name, err)
 		}
 		result.DataDeleted = true

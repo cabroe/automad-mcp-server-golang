@@ -26,7 +26,7 @@ Live access to [automadcms/automad-theme-starter-kit](https://github.com/automad
 | `get_file_content` | Read the content of a file (`.php`, `.json`, `.md`, `.txt`, `.css`, `.js`) |
 | `get_template_snippet` | Retrieve curated, frequently used files (page component, pagination, list grid, theme.json, etc.) with explanations |
 | `search_code` | Search cached code for text, e.g., Automad template syntax (`@{ }`, `<@ @>`) or theme.json keys |
-| `get_file_url` | Generate Raw and GitHub URLs for a file, without fetching it |
+| `get_file_url` | Generate Raw and GitHub URLs for any repository file without fetching its content (existence verification may fetch the repository tree) |
 
 ### 🐳 Instance Tools
 
@@ -42,7 +42,7 @@ Create and remotely control real Automad sites running in Docker (official `auto
 | `get_automad_instance_logs` | Fetch recent container logs (e.g. the auto-generated dashboard credentials) |
 | `run_automad_console_command` | Run one of Automad's own console commands (`cache:clear`, `cache:purge`, `user:create`, `update`) inside an instance |
 
-Every container these tools create is labeled `managed-by=automad-mcp-server`, and every lifecycle action re-checks that label before acting — so this server can only ever affect containers it created itself.
+Every container these tools create is labeled `managed-by=automad-mcp-server`. Lifecycle tools resolve only label-matched containers and then operate on the verified container ID, so unrelated containers with similar names are not affected.
 
 ### 📦 Resources
 
@@ -126,7 +126,7 @@ The instance tools work out of the box (Docker required) but can be configured v
 |---|---|---|
 | `AUTOMAD_INSTANCES_DIR` | `~/.automad-mcp-server/instances` | Base directory for instance data (each instance gets its own subdirectory) |
 | `AUTOMAD_DOCKER_IMAGE` | `automad/automad:v2` | Automad v2-compatible image used for new instances; per-call overrides must match this value |
-| `AUTOMAD_STARTER_KIT_REF` | `master` | Git branch or tag used by the Starter Kit tools |
+| `AUTOMAD_STARTER_KIT_REF` | `master` | Simple Git branch or tag without `/`; slash-containing refs are rejected to keep generated file URLs unambiguous |
 
 The server shells out to the `docker` CLI, so it also honors standard Docker environment variables like `DOCKER_HOST`/`DOCKER_CONTEXT` if you want to point it at a remote Docker daemon.
 
