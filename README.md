@@ -99,12 +99,15 @@ In `.cursor/mcp.json` oder global in `~/.cursor/mcp.json`:
 npx @modelcontextprotocol/inspector go run .
 ```
 
-### Manuell testen (direkter stdio-Test)
+### Manuell testen (MCP Inspector)
 
 ```bash
-# Server starten und JSON-RPC-Nachrichten senden
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | go run .
+# Interaktiver Inspector im Browser
+npx @modelcontextprotocol/inspector go run .
 ```
+
+> **Hinweis:** Der Server kommuniziert über das MCP-Protokoll (kein rohes JSON-RPC).
+> Verwende immer den MCP Inspector oder einen MCP-kompatiblen Client zum Testen.
 
 ## Projektstruktur
 

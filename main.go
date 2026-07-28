@@ -15,10 +15,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -39,6 +42,10 @@ func main() {
 	}))
 
 	if err := run(logger); err != nil {
+		if isNormalShutdown(err) {
+			logger.Info("server shut down", "reason", err)
+			return
+		}
 		logger.Error("server error", "err", err)
 		os.Exit(1)
 	}
@@ -86,9 +93,30 @@ Use search_docs to find relevant pages, then get_page to read the full content.`
 
 	// Run using the stdio transport (standard for MCP servers invoked by clients).
 	if err := s.Run(ctx, &mcp.StdioTransport{}); err != nil {
+		if isNormalShutdown(err) {
+			return err // propagate as-is for clean exit
+		}
 		return fmt.Errorf("server run error: %w", err)
 	}
 
 	logger.Info("server shut down gracefully")
 	return nil
+}
+
+// isNormalShutdown reports whether err represents a routine, expected shutdown
+// condition rather than an actual error:
+//   - context.Canceled: triggered by SIGINT / SIGTERM
+//   - io.EOF: client closed the stdio pipe (normal for short-lived inspector sessions)
+//   - "server is closing": the MCP SDK's internal signal that the connection ended
+func isNormalShutdown(err error) bool {
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "server is closing") ||
+		strings.Contains(msg, "client is closing") ||
+		strings.Contains(msg, "EOF")
 }
