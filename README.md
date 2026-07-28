@@ -4,7 +4,7 @@
 [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-v1.7.0-green.svg)](https://github.com/modelcontextprotocol/go-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An MCP (**Model Context Protocol**) server that exposes the [Automad CMS](https://automad.org) documentation and the official [Automad Theme Starter Kit](https://github.com/automadcms/automad-theme-starter-kit) repository to AI assistants. Implemented using the official [Go SDK for MCP](https://github.com/modelcontextprotocol/go-sdk).
+An MCP (**Model Context Protocol**) server that exposes the [Automad CMS](https://automad.org) documentation, the official [Automad Theme Starter Kit](https://github.com/automadcms/automad-theme-starter-kit) repository, and Docker-based Automad instance management to AI assistants. Implemented using the official [Go SDK for MCP](https://github.com/modelcontextprotocol/go-sdk).
 
 ## Features
 
@@ -27,6 +27,22 @@ Live access to [automadcms/automad-theme-starter-kit](https://github.com/automad
 | `get_template_snippet` | Retrieve curated, frequently used files (page component, pagination, list grid, theme.json, etc.) with explanations |
 | `search_code` | Search cached code for text, e.g., Automad template syntax (`@{ }`, `<@ @>`) or theme.json keys |
 | `get_file_url` | Generate Raw and GitHub URLs for a file, without fetching it |
+
+### 🐳 Instance Tools
+
+Create and remotely control real Automad sites running in Docker (official `automad/automad:v2` image) — for end-to-end testing instead of just reading about behavior. Requires [Docker](https://www.docker.com/) installed and running. Details, examples, and typical prompts are available in [SKILL.md](SKILL.md).
+
+| Tool | Description |
+|------|-------------|
+| `create_automad_instance` | Create and start a new Automad instance (auto-assigns a free port if none given) |
+| `list_automad_instances` | List every instance managed by this server, with status and port |
+| `get_automad_instance` | Get full status/detail for a single instance |
+| `set_automad_instance_state` | Start, stop, or restart an instance |
+| `remove_automad_instance` | Stop and remove an instance, optionally deleting its data |
+| `get_automad_instance_logs` | Fetch recent container logs (e.g. the auto-generated dashboard credentials) |
+| `run_automad_console_command` | Run one of Automad's own console commands (`clearcache`, `purge`, `createuser`, `update`) inside an instance |
+
+Every container these tools create is labeled `managed-by=automad-mcp-server`, and every lifecycle action re-checks that label before acting — so this server can only ever affect containers it created itself.
 
 ### 📦 Resources
 
@@ -92,6 +108,17 @@ The Starter Kit tools access the GitHub REST API unauthenticated (limited to 60 
 }
 ```
 
+#### Optional: Instance Tool Settings
+
+The instance tools work out of the box (Docker required) but can be configured via environment variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AUTOMAD_INSTANCES_DIR` | `~/.automad-mcp-server/instances` | Base directory for instance data (each instance gets its own subdirectory) |
+| `AUTOMAD_DOCKER_IMAGE` | `automad/automad:v2` | Default image for new instances |
+
+The server shells out to the `docker` CLI, so it also honors standard Docker environment variables like `DOCKER_HOST`/`DOCKER_CONTEXT` if you want to point it at a remote Docker daemon.
+
 ### Cursor
 
 In `.cursor/mcp.json` or globally in `~/.cursor/mcp.json`:
@@ -156,9 +183,17 @@ automad-mcp-server-golang/
 │   │   ├── tree.go             # Tree rendering for list_files
 │   │   ├── service.go          # Coordinator: ListFiles, GetFileContent, SearchCode, WarmFiles
 │   │   └── types.go            # Tree/TreeEntry, error types
+│   ├── instances/
+│   │   ├── docker.go           # docker CLI wrapper (os/exec, no shell)
+│   │   ├── parse.go            # Parses `docker ps` output into Instance values
+│   │   ├── validate.go         # Name/console-command validation, free-port lookup
+│   │   ├── errors.go           # NotFoundError, AlreadyExistsError
+│   │   ├── service.go          # Coordinator: Create, List, Get, SetState, Remove, Logs, RunConsoleCommand
+│   │   └── types.go            # Instance
 │   └── server/
 │       ├── tools.go              # MCP tool handlers (Docs)
 │       ├── starterkit_tools.go   # MCP tool handlers (Starter Kit)
+│       ├── instance_tools.go     # MCP tool handlers (Instances)
 │       ├── resources.go          # MCP resource handlers
 │       └── prompts.go            # MCP prompt handlers
 ├── Makefile
@@ -185,6 +220,7 @@ make run
 - **Documentation Strategy**: Live-fetch from automad.org with in-memory cache
 - **Starter Kit Strategy**: Live access to the GitHub REST API (Git Trees API for `list_files`, Contents API for `get_file_content`) with in-memory caching, rate limit tracking (`X-RateLimit-*` headers), and embedded fallbacks for curated snippet files during API downtime
 - **Cache Warmup**: Concurrently warms sitemap pages and supported Starter Kit files (max 5 parallel, 2 min timeout) on startup so `search_docs`/`search_code` can perform full-text searches from the beginning
+- **Instance Strategy**: Shells out to the `docker` CLI (no Docker SDK dependency) with argument slices only — never an interpolated shell string. Every container is labeled `managed-by=automad-mcp-server`, and every lifecycle call re-verifies that label before acting, so the server can never affect a container it didn't create. `run_automad_console_command` is restricted to Automad's four documented console subcommands rather than arbitrary shell execution. Availability of Docker itself is checked lazily per call, so its absence never affects the docs/Starter Kit tools
 - **MCP Version**: 2026-07-28 (via go-sdk v1.7.0)
 
 ## License

@@ -1,16 +1,18 @@
 ---
-name: automad-starter-kit-mcp
-description: Access the official Automad Theme Starter Kit GitHub repository (automadcms/automad-theme-starter-kit) through the automad-mcp-server's list_files, get_file_content, get_template_snippet, search_code, and get_file_url tools. Use this whenever building, reviewing, or debugging an Automad theme and you need the Starter Kit's real file structure, an authoritative reference implementation of a component (page shell, content block, pagination, pagelist grid), or example usage of Automad template syntax (@{ }, <@ @>) as source of truth — instead of guessing from general PHP/CMS knowledge or from outdated training data.
+name: automad-mcp-server
+description: Use automad-mcp-server's tools whenever working with Automad CMS — searching/reading the official docs (search_docs, get_page, list_pages), consulting the official Theme Starter Kit repository as a source-of-truth reference implementation (list_files, get_file_content, get_template_snippet, search_code, get_file_url), or creating and remotely controlling disposable Automad instances in Docker to test a theme or workflow end-to-end (create_automad_instance, list_automad_instances, get_automad_instance, set_automad_instance_state, remove_automad_instance, get_automad_instance_logs, run_automad_console_command). Use this whenever building, reviewing, debugging, or testing an Automad theme or site, instead of guessing from general PHP/CMS knowledge or outdated training data.
 ---
 
-# Automad Starter Kit MCP Tools
+# Automad MCP Server Tools
 
-`automad-mcp-server` exposes the official Automad Theme Starter Kit
-(https://github.com/automadcms/automad-theme-starter-kit) as five MCP tools,
-in addition to its existing Automad documentation tools (`search_docs`,
-`get_page`, `list_pages`). Use the Starter Kit tools as the **source of
-truth** for what real Automad theme code looks like — the documentation
-explains concepts, the Starter Kit shows a working implementation.
+`automad-mcp-server` exposes three tool families to AI assistants over MCP:
+
+- **Docs tools** (`search_docs`, `get_page`, `list_pages`) — the official Automad documentation.
+- **Starter Kit tools** (`list_files`, `get_file_content`, `get_template_snippet`, `search_code`, `get_file_url`) — the official [Theme Starter Kit](https://github.com/automadcms/automad-theme-starter-kit) repository as a **source of truth** for real theme code.
+- **Instance tools** (`create_automad_instance`, `list_automad_instances`, `get_automad_instance`, `set_automad_instance_state`, `remove_automad_instance`, `get_automad_instance_logs`, `run_automad_console_command`) — create and remotely control real, disposable Automad sites running in Docker.
+
+Use the docs tools to understand a concept, the Starter Kit tools to see a
+real implementation, and the instance tools to actually run and test it.
 
 > **Note on naming:** the Starter Kit does not have `header.php`/`footer.php`
 > files. Its `components/page.php` file combines both into a single "page
@@ -45,6 +47,14 @@ Register it with your MCP client, e.g. Claude Desktop
 
 The same binary also works with Cursor, VS Code, and any other MCP stdio
 client — see the main [README.md](README.md) for those configs.
+
+### Optional: Docker, for the instance tools
+
+The docs and Starter Kit tools work with no further setup. The **instance
+tools** additionally require [Docker](https://www.docker.com/) (Desktop or
+Engine) installed and running — they shell out to the `docker` CLI. If
+Docker isn't available, those seven tools return a clear error; the rest of
+the server is unaffected.
 
 ### Optional: raise the GitHub API rate limit
 
@@ -187,6 +197,88 @@ Raw:    https://raw.githubusercontent.com/automadcms/automad-theme-starter-kit/m
 GitHub: https://github.com/automadcms/automad-theme-starter-kit/blob/master/components/page.php
 ```
 
+## Instance tools
+
+Create and control real Automad sites running in Docker (official
+`automad/automad:v2` image), for end-to-end testing rather than reading
+about behavior. Requires Docker — see Installation above.
+
+**Safety model:** every container these tools create is labeled
+`managed-by=automad-mcp-server`; every lifecycle action re-checks that label
+before acting, so these tools can never start, stop, or remove a container
+they didn't create — even one that happens to share a name. There is no
+arbitrary shell-exec tool: `run_automad_console_command` only runs Automad's
+own four documented CLI subcommands. Instance data lives under a
+server-managed directory, not an arbitrary host path a tool call could specify.
+
+### `create_automad_instance`
+
+Creates and starts a new instance.
+
+**Parameters:** `name` (required), `port` (optional, auto-assigned if omitted), `image` (optional, default `automad/automad:v2`).
+
+**Example call:**
+
+```json
+{ "name": "demo-theme" }
+```
+
+**Example response:**
+
+```
+**demo-theme**
+Container: automad-mcp-demo-theme (a1b2c3d4e5f6)
+Status: Up 2 seconds
+Ports: 0.0.0.0:54231->80/tcp
+Dashboard: http://localhost:54231/dashboard
+Image: automad/automad:v2
+Data directory: /Users/you/.automad-mcp-server/instances/demo-theme
+Created: 2026-07-28 16:00:00 +0000 UTC
+```
+
+Automad auto-generates a dashboard user on first start — fetch the
+credentials right after creating an instance with `get_automad_instance_logs`.
+
+### `list_automad_instances`
+
+Lists every instance this server has created, with status and port. No parameters.
+
+### `get_automad_instance`
+
+Full status/detail for one instance. **Parameters:** `name` (required).
+
+### `set_automad_instance_state`
+
+Starts, stops, or restarts an instance's container.
+
+**Parameters:** `name` (required), `state` (required) — one of `start`, `stop`, `restart`.
+
+### `remove_automad_instance`
+
+Stops and removes an instance's container.
+
+**Parameters:** `name` (required), `delete_data` (optional, default `false`) — set `true` to also permanently delete its data directory; otherwise the data is kept and can be reattached by creating a new instance with the same name.
+
+### `get_automad_instance_logs`
+
+Fetches recent container logs — the primary way to retrieve the
+auto-generated dashboard credentials, or to debug a crash-looping container.
+
+**Parameters:** `name` (required), `tail` (optional, default `100`).
+
+### `run_automad_console_command`
+
+Runs one of Automad's own CLI commands (`php automad/console <command>`)
+inside a running instance.
+
+**Parameters:** `name` (required), `command` (required) — one of `clearcache`, `purge`, `createuser`, `update`.
+
+**Example call:**
+
+```json
+{ "name": "demo-theme", "command": "createuser" }
+```
+
 ## Typical prompts
 
 - "Show me how the official Automad Starter Kit implements pagination — I want to copy the real pattern, not invent one."
@@ -195,6 +287,10 @@ GitHub: https://github.com/automadcms/automad-theme-starter-kit/blob/master/comp
 - "List every file under `blocks/` in the Starter Kit repo."
 - "Get the `theme.json` from the Starter Kit and explain what `fieldOrder` and `masks` do."
 - "Give me the raw GitHub URL for the pagelist grid component so I can link to it in a PR description."
+- "Spin up a fresh Automad instance called `demo` and give me the dashboard login."
+- "Restart the `demo` instance and tail its logs."
+- "Run the cache-clear console command on `demo`, then remove it entirely including its data."
+- "List every Automad instance I currently have running."
 
 ## Design notes
 
@@ -215,3 +311,9 @@ GitHub: https://github.com/automadcms/automad-theme-starter-kit/blob/master/comp
   `<`, `>` — all regex metacharacters — so `search_code` does a plain
   case-insensitive substring match instead, matching queries like `@{` and
   `<@` exactly as typed.
+- **Instance isolation:** the Docker CLI is always invoked with an argument
+  slice, never an interpolated shell string, so instance names/ports/commands
+  have no command-injection surface. Combined with the managed-by label check
+  on every lifecycle call, the instance tools are scoped to containers they
+  created themselves and can't be redirected at arbitrary Docker containers
+  on the host.
