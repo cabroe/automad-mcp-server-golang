@@ -30,6 +30,22 @@ func NewService() *Service {
 	}
 }
 
+// NormalizeURL canonicalizes a documentation path for sitemap lookup,
+// fetching, and cache keys. Query strings and fragments are discarded.
+func NormalizeURL(value string) string {
+	value = strings.TrimSpace(value)
+	if i := strings.IndexAny(value, "?#"); i >= 0 {
+		value = value[:i]
+	}
+	if value == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+	return value
+}
+
 // GetPage fetches and parses a documentation page at the given relative URL.
 // Results are cached for DefaultCacheTTL. Subsequent calls with the same URL
 // return the cached version without any network request. The provided
@@ -37,10 +53,7 @@ func NewService() *Service {
 // (e.g. because the calling MCP client disconnected) aborts the fetch
 // instead of blocking until the fixed fetch timeout elapses.
 func (s *Service) GetPage(ctx context.Context, url string) (*Page, error) {
-	// Normalize: ensure leading slash.
-	if !strings.HasPrefix(url, "/") {
-		url = "/" + url
-	}
+	url = NormalizeURL(url)
 
 	// Check cache first.
 	if cached := s.cache.Get(url); cached != nil {

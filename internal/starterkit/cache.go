@@ -46,7 +46,7 @@ func (c *Cache) GetTree() *Tree {
 		return nil
 	}
 	if time.Now().Before(entry.expiresAt) {
-		tree := entry.tree
+		tree := cloneTree(entry.tree)
 		c.mu.RUnlock()
 		return tree
 	}
@@ -64,7 +64,7 @@ func (c *Cache) GetTree() *Tree {
 func (c *Cache) SetTree(t *Tree) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.tree = &cachedTree{tree: t, expiresAt: time.Now().Add(c.ttl)}
+	c.tree = &cachedTree{tree: cloneTree(t), expiresAt: time.Now().Add(c.ttl)}
 }
 
 // GetFile returns the cached content for path and true, or (nil, false) if
@@ -77,7 +77,7 @@ func (c *Cache) GetFile(path string) ([]byte, bool) {
 		return nil, false
 	}
 	if time.Now().Before(entry.expiresAt) {
-		content := entry.content
+		content := append([]byte(nil), entry.content...)
 		c.mu.RUnlock()
 		return content, true
 	}
@@ -95,7 +95,16 @@ func (c *Cache) GetFile(path string) ([]byte, bool) {
 func (c *Cache) SetFile(path string, content []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.files[path] = &cachedFile{content: content, expiresAt: time.Now().Add(c.ttl)}
+	c.files[path] = &cachedFile{content: append([]byte(nil), content...), expiresAt: time.Now().Add(c.ttl)}
+}
+
+func cloneTree(t *Tree) *Tree {
+	if t == nil {
+		return nil
+	}
+	copy := *t
+	copy.Entries = append([]TreeEntry(nil), t.Entries...)
+	return &copy
 }
 
 // Stats returns a human-readable summary of the current cache state.

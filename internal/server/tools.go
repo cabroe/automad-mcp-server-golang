@@ -90,9 +90,10 @@ Use search_docs or list_pages to discover available URLs first.`,
 		// Check whether the URL is in the known sitemap so a fetch failure
 		// can tell the caller whether the URL was simply unrecognized (most
 		// likely cause of a 404) versus a transient network/parse issue.
-		known := docs.FindByURL(input.URL)
+		url := docs.NormalizeURL(input.URL)
+		known := docs.FindByURL(url)
 
-		page, err := svc.GetPage(ctx, input.URL)
+		page, err := svc.GetPage(ctx, url)
 		if err != nil {
 			if known == nil {
 				return toolError(fmt.Sprintf("Failed to fetch page %q: %v\n\nThis URL is not in the known Automad documentation sitemap. Use list_pages or search_docs to find a valid URL.", input.URL, err)), nil, nil

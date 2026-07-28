@@ -108,7 +108,10 @@ Use list_files or search_code to discover paths first.`,
 
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("# %s\n\n", input.Path))
-		rawURL, blobURL := svc.FileURLs(input.Path)
+		rawURL, blobURL, err := svc.FileURLs(input.Path)
+		if err != nil {
+			return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
+		}
 		sb.WriteString(fmt.Sprintf("Raw: %s\nGitHub: %s\n\n", rawURL, blobURL))
 		if usedFallback {
 			sb.WriteString("⚠️ GitHub API unavailable — showing bundled fallback content, which may be outdated.\n\n")
@@ -222,7 +225,10 @@ repository, without fetching its content.`,
 			return toolError("path must not be empty"), nil, nil
 		}
 
-		rawURL, blobURL := svc.FileURLs(input.Path)
+		rawURL, blobURL, err := svc.FileURLs(input.Path)
+		if err != nil {
+			return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
+		}
 		return toolText(fmt.Sprintf("Raw:    %s\nGitHub: %s", rawURL, blobURL)), nil, nil
 	})
 }
@@ -244,5 +250,9 @@ func fenceBlock(path, content string) string {
 	case strings.HasSuffix(path, ".css"):
 		lang = "css"
 	}
-	return fmt.Sprintf("```%s\n%s\n```\n", lang, content)
+	fence := "```"
+	for strings.Contains(content, fence) {
+		fence += "`"
+	}
+	return fmt.Sprintf("%s%s\n%s\n%s\n", fence, lang, content, fence)
 }

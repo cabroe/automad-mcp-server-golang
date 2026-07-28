@@ -59,14 +59,11 @@ const (
 	defaultCommandTimeout = 20 * time.Second
 
 	// instanceReadyTimeout bounds the wait for Automad's first-run Composer
-	// installation to create /app/automad/console.
+	// installation and a successful console readiness probe.
 	instanceReadyTimeout = 2 * time.Minute
 
 	// instanceReadyPollInterval controls how often readiness is checked.
 	instanceReadyPollInterval = 500 * time.Millisecond
-
-	// consolePath is created by the image after first-run initialization.
-	consolePath = "/app/automad/console"
 
 	// createTimeout is longer, since `docker run` may need to pull the
 	// image on first use.

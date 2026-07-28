@@ -1,7 +1,9 @@
 package instances
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,6 +88,14 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 
 	if _, err := s.Get(ctx, name); err == nil {
 		return nil, &AlreadyExistsError{Name: name}
+	} else {
+		var notFound *NotFoundError
+		if !errors.As(err, &notFound) {
+			return nil, fmt.Errorf("checking whether instance %q exists: %w", name, err)
+		}
+	}
+	if err := s.ensureContainerNameAvailable(ctx, name); err != nil {
+		return nil, err
 	}
 
 	if port == 0 {
@@ -100,6 +110,11 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 	}
 
 	dir := s.dataDir(name)
+	_, statErr := os.Stat(dir)
+	dirExisted := statErr == nil
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("checking data directory %s: %w", dir, statErr)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating data directory %s: %w", dir, err)
 	}
@@ -119,20 +134,33 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 	if _, _, err := s.runner.run(runCtx, args...); err != nil {
 		// Clean up the directory we just created if the container failed to
 		// start, so a retry with the same name doesn't leave orphaned state.
-		_ = os.Remove(dir)
+		if !dirExisted {
+			_ = os.Remove(dir)
+		}
 		return nil, fmt.Errorf("creating instance %q: %w", name, err)
 	}
 
-	inst, err := s.Get(ctx, name)
-	if err != nil {
-		return nil, err
-	}
 	if err := s.waitReady(ctx, name); err != nil {
 		// Keep the running container and persistent data so callers can inspect
 		// logs or retry after a slow image initialization.
 		return nil, err
 	}
-	return inst, nil
+	return s.Get(ctx, name)
+}
+
+// ensureContainerNameAvailable detects collisions with containers not managed
+// by this server before docker run returns a lower-level name-conflict error.
+func (s *Service) ensureContainerNameAvailable(ctx context.Context, name string) error {
+	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
+	defer cancel()
+	out, _, err := s.runner.run(runCtx, "ps", "-a", "--filter", "name=^/"+s.containerName(name)+"$", "--format", "{{.ID}}")
+	if err != nil {
+		return fmt.Errorf("checking Docker container name for instance %q: %w", name, err)
+	}
+	if strings.TrimSpace(out) != "" {
+		return fmt.Errorf("Docker container name %q is already used by a container not managed as instance %q", s.containerName(name), name)
+	}
+	return nil
 }
 
 // waitReady waits until the first-run image initialization has created the
@@ -147,9 +175,9 @@ func (s *Service) waitReady(ctx context.Context, name string) error {
 
 	for {
 		checkCtx, checkCancel := context.WithTimeout(readyCtx, defaultCommandTimeout)
-		_, _, err := s.runner.run(checkCtx, "exec", s.containerName(name), "test", "-f", consolePath)
+		stdout, _, err := s.runner.run(checkCtx, "exec", s.containerName(name), "php", "automad/console", "cache:clear")
 		checkCancel()
-		if err == nil {
+		if err == nil && !bytes.Contains([]byte(stdout), []byte("does not exist")) {
 			return nil
 		}
 
@@ -253,6 +281,11 @@ func (s *Service) SetState(ctx context.Context, name string, state InstanceState
 
 	if _, _, err := s.runner.run(runCtx, string(state), s.containerName(name)); err != nil {
 		return fmt.Errorf("%s instance %q: %w", state, name, err)
+	}
+	if state == StateStart || state == StateRestart {
+		if err := s.waitReady(ctx, name); err != nil {
+			return err
+		}
 	}
 	return nil
 }

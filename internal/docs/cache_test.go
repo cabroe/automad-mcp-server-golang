@@ -78,6 +78,18 @@ func TestCache_Stats(t *testing.T) {
 	}
 }
 
+func TestCache_ReturnsCopies(t *testing.T) {
+	c := docs.NewCache(time.Hour)
+	original := &docs.Page{Title: "Original"}
+	c.Set("/copy", original)
+	original.Title = "Changed after Set"
+	got := c.Get("/copy")
+	got.Title = "Changed after Get"
+	if again := c.Get("/copy"); again.Title != "Original" {
+		t.Fatalf("cached page was mutated: %q", again.Title)
+	}
+}
+
 func TestCache_ConcurrentAccess(t *testing.T) {
 	c := docs.NewCache(time.Hour)
 	done := make(chan struct{})

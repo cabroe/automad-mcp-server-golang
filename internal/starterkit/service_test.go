@@ -80,7 +80,10 @@ func TestService_GetFileContent_UnsupportedExtension(t *testing.T) {
 
 func TestService_FileURLs(t *testing.T) {
 	svc := starterkit.NewSeededService(nil, nil)
-	raw, blob := svc.FileURLs("theme.json")
+	raw, blob, err := svc.FileURLs("theme.json")
+	if err != nil {
+		t.Fatalf("FileURLs: %v", err)
+	}
 
 	if !strings.Contains(raw, "raw.githubusercontent.com/"+starterkit.Owner+"/"+starterkit.Repo) {
 		t.Errorf("unexpected raw URL: %s", raw)
@@ -90,6 +93,18 @@ func TestService_FileURLs(t *testing.T) {
 	}
 	if !strings.HasSuffix(raw, "/theme.json") || !strings.HasSuffix(blob, "/theme.json") {
 		t.Errorf("expected both URLs to end with /theme.json, got raw=%s blob=%s", raw, blob)
+	}
+}
+
+func TestService_RejectsUnsafeRepositoryPaths(t *testing.T) {
+	svc := starterkit.NewSeededService(nil, nil)
+	for _, path := range []string{"../theme.json", "components/../../theme.json", `components\\page.php`, "https://example.com/a.php", "theme.json?ref=x"} {
+		if _, _, err := svc.GetFileContent(context.Background(), path); err == nil {
+			t.Errorf("GetFileContent(%q) accepted unsafe path", path)
+		}
+		if _, _, err := svc.FileURLs(path); err == nil {
+			t.Errorf("FileURLs(%q) accepted unsafe path", path)
+		}
 	}
 }
 

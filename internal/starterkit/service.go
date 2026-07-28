@@ -3,6 +3,8 @@ package starterkit
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -79,14 +81,40 @@ func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
 	return value.(*Tree), false, nil
 }
 
+// normalizeRepositoryPath validates and canonicalizes a repository-relative
+// path. It rejects traversal, URL-like input, backslashes, and control bytes.
+func normalizeRepositoryPath(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("path must not be empty")
+	}
+	if strings.Contains(value, "\\") || strings.ContainsAny(value, "\x00\r\n") {
+		return "", fmt.Errorf("invalid repository path %q", value)
+	}
+	if u, err := url.Parse(value); err != nil || u.IsAbs() || u.Host != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("path must be a repository-relative file path")
+	}
+	value = strings.TrimPrefix(value, "/")
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("repository path must not contain '..'")
+		}
+	}
+	clean := path.Clean(value)
+	if clean == "." || clean == "" || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("path must be a repository-relative file path")
+	}
+	return clean, nil
+}
+
 // GetFileContent returns the content of a single file, using the cache when
 // possible. The second return value reports whether embedded fallback
 // content was used because the live GitHub API request failed; this is only
 // possible for the curated set of paths in fallbackFiles.
 func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool, error) {
-	path = strings.TrimPrefix(strings.TrimSpace(path), "/")
-	if path == "" {
-		return nil, false, fmt.Errorf("path must not be empty")
+	path, err := normalizeRepositoryPath(path)
+	if err != nil {
+		return nil, false, err
 	}
 	if !isSupportedExtension(path) {
 		return nil, false, fmt.Errorf("unsupported file type %q; supported extensions: %s", filepath.Ext(path), SupportedExtensionsList)
@@ -118,12 +146,15 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 
 // FileURLs returns the direct raw-content URL and the human-browsable GitHub
 // URL for a file, without fetching anything.
-func (s *Service) FileURLs(path string) (rawURL, blobURL string) {
-	path = strings.TrimPrefix(strings.TrimSpace(path), "/")
+func (s *Service) FileURLs(filePath string) (rawURL, blobURL string, err error) {
+	filePath, err = normalizeRepositoryPath(filePath)
+	if err != nil {
+		return "", "", err
+	}
 	branch := s.client.Branch()
-	rawURL = fmt.Sprintf("%s/%s/%s/%s/%s", rawBaseURL, Owner, Repo, branch, path)
-	blobURL = fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s", Owner, Repo, branch, path)
-	return rawURL, blobURL
+	rawURL = fmt.Sprintf("%s/%s/%s/%s/%s", rawBaseURL, Owner, Repo, branch, escapePath(filePath))
+	blobURL = fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s", Owner, Repo, url.PathEscape(branch), escapePath(filePath))
+	return rawURL, blobURL, nil
 }
 
 // WarmFiles proactively fetches and caches the content of every supported

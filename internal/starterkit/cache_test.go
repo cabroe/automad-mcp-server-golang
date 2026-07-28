@@ -72,6 +72,28 @@ func TestCache_FileExpires(t *testing.T) {
 	}
 }
 
+func TestCache_ReturnsCopies(t *testing.T) {
+	c := starterkit.NewCache(time.Hour)
+	tree := &starterkit.Tree{Entries: []starterkit.TreeEntry{{Path: "original.php", Type: "blob"}}}
+	file := []byte("original")
+	c.SetTree(tree)
+	c.SetFile("original.php", file)
+	tree.Entries[0].Path = "changed-after-set.php"
+	file[0] = 'X'
+
+	gotTree := c.GetTree()
+	gotFile, _ := c.GetFile("original.php")
+	gotTree.Entries[0].Path = "changed-after-get.php"
+	gotFile[0] = 'Y'
+
+	if again := c.GetTree(); again.Entries[0].Path != "original.php" {
+		t.Fatalf("cached tree was mutated: %+v", again.Entries)
+	}
+	if again, _ := c.GetFile("original.php"); string(again) != "original" {
+		t.Fatalf("cached file was mutated: %q", again)
+	}
+}
+
 func TestCache_Stats(t *testing.T) {
 	c := starterkit.NewCache(time.Hour)
 	c.SetTree(&starterkit.Tree{Entries: []starterkit.TreeEntry{{Path: "x", Type: "blob"}}})
