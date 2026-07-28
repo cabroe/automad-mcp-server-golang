@@ -15,7 +15,7 @@
 //     surface from instance names, ports, or other parameters.
 //   - Console command execution (run_automad_console_command) is restricted
 //     to Automad's own documented, argument-free CLI commands
-//     (clearcache, purge, createuser, update) rather than exposing arbitrary
+//     (cache:clear, cache:purge, user:create, update) rather than exposing arbitrary
 //     shell execution inside the container.
 //   - Instance data directories live under a single server-managed base
 //     directory (AUTOMAD_INSTANCES_DIR, default ~/.automad-mcp-server/instances)
@@ -57,6 +57,16 @@ const (
 
 	// defaultCommandTimeout bounds most Docker CLI calls (start/stop/logs/etc).
 	defaultCommandTimeout = 20 * time.Second
+
+	// instanceReadyTimeout bounds the wait for Automad's first-run Composer
+	// installation to create /app/automad/console.
+	instanceReadyTimeout = 2 * time.Minute
+
+	// instanceReadyPollInterval controls how often readiness is checked.
+	instanceReadyPollInterval = 500 * time.Millisecond
+
+	// consolePath is created by the image after first-run initialization.
+	consolePath = "/app/automad/console"
 
 	// createTimeout is longer, since `docker run` may need to pull the
 	// image on first use.

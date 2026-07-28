@@ -48,7 +48,7 @@ type getInstanceLogsInput struct {
 // runConsoleCommandInput is the input schema for run_automad_console_command.
 type runConsoleCommandInput struct {
 	Name    string `json:"name" jsonschema:"The instance's name."`
-	Command string `json:"command" jsonschema:"One of 'clearcache', 'purge', 'createuser', 'update' — see Automad's php automad/console CLI."`
+	Command string `json:"command" jsonschema:"One of 'cache:clear', 'cache:purge', 'user:create', 'update' — see Automad's php automad/console CLI."`
 }
 
 // listInstancesInput is the (empty) input schema for list_automad_instances.
@@ -70,8 +70,8 @@ func registerCreateInstance(s *mcp.Server, svc *instances.Service) {
 		Name: "create_automad_instance",
 		Description: fmt.Sprintf(`Create and start a new Automad CMS instance as a Docker container, using the official %s image.
 Requires Docker to be installed and running. Data persists in a server-managed directory keyed by the
-instance name. On first start Automad auto-generates a dashboard user; retrieve the credentials with
-get_automad_instance_logs right after creating the instance.`, instances.DefaultImage),
+instance name. The call waits for Automad's first-run installation to finish before returning. On first
+start Automad auto-generates a dashboard user; retrieve the credentials with get_automad_instance_logs.`, instances.DefaultImage),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input createInstanceInput) (*mcp.CallToolResult, any, error) {
 		if strings.TrimSpace(input.Name) == "" {
 			return toolError("name must not be empty"), nil, nil

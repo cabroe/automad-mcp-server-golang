@@ -35,6 +35,10 @@ func TestValidateName_Invalid(t *testing.T) {
 }
 
 func TestValidateConsoleCommand_Allowed(t *testing.T) {
+	want := []string{"cache:clear", "cache:purge", "user:create", "update"}
+	if strings.Join(instances.AllowedConsoleCommands, ",") != strings.Join(want, ",") {
+		t.Fatalf("AllowedConsoleCommands = %v, want %v", instances.AllowedConsoleCommands, want)
+	}
 	for _, cmd := range instances.AllowedConsoleCommands {
 		if err := instances.ValidateConsoleCommand(cmd); err != nil {
 			t.Errorf("ValidateConsoleCommand(%q) = %v, want nil", cmd, err)
@@ -43,7 +47,7 @@ func TestValidateConsoleCommand_Allowed(t *testing.T) {
 }
 
 func TestValidateConsoleCommand_Rejected(t *testing.T) {
-	for _, cmd := range []string{"", "rm -rf /", "migrate", "shell", "clearcache; purge"} {
+	for _, cmd := range []string{"", "rm -rf /", "migrate", "shell", "clearcache", "purge", "createuser", "cache:clear; cache:purge"} {
 		if err := instances.ValidateConsoleCommand(cmd); err == nil {
 			t.Errorf("ValidateConsoleCommand(%q) = nil, want an error", cmd)
 		}

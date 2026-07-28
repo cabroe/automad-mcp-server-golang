@@ -23,11 +23,11 @@ func ValidateName(name string) error {
 	return nil
 }
 
-// AllowedConsoleCommands are Automad's own documented, argument-free
+// AllowedConsoleCommands are Automad v2's documented, argument-free
 // `php automad/console <command>` subcommands. run_automad_console_command
 // only allows these — not arbitrary shell execution — so this tool can't be
 // used as a generic "run anything in the container" backdoor.
-var AllowedConsoleCommands = []string{"clearcache", "purge", "createuser", "update"}
+var AllowedConsoleCommands = []string{"cache:clear", "cache:purge", "user:create", "update"}
 
 // ValidateConsoleCommand reports whether command is one of AllowedConsoleCommands.
 func ValidateConsoleCommand(command string) error {

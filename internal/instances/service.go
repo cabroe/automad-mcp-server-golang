@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Service is the main entry point for creating and controlling Automad
@@ -122,7 +123,42 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 		return nil, fmt.Errorf("creating instance %q: %w", name, err)
 	}
 
-	return s.Get(ctx, name)
+	inst, err := s.Get(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.waitReady(ctx, name); err != nil {
+		// Keep the running container and persistent data so callers can inspect
+		// logs or retry after a slow image initialization.
+		return nil, err
+	}
+	return inst, nil
+}
+
+// waitReady waits until the first-run image initialization has created the
+// Automad console. A container being "running" only means its entrypoint is
+// active; Composer may still be installing Automad into the mounted /app.
+func (s *Service) waitReady(ctx context.Context, name string) error {
+	readyCtx, cancel := context.WithTimeout(ctx, instanceReadyTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(instanceReadyPollInterval)
+	defer ticker.Stop()
+
+	for {
+		checkCtx, checkCancel := context.WithTimeout(readyCtx, defaultCommandTimeout)
+		_, _, err := s.runner.run(checkCtx, "exec", s.containerName(name), "test", "-f", consolePath)
+		checkCancel()
+		if err == nil {
+			return nil
+		}
+
+		select {
+		case <-readyCtx.Done():
+			return fmt.Errorf("instance %q started but Automad did not become ready within %s; inspect get_automad_instance_logs and retry when initialization completes: %w", name, instanceReadyTimeout, readyCtx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 // List returns every Automad instance managed by this server.
@@ -283,6 +319,9 @@ func (s *Service) RunConsoleCommand(ctx context.Context, name, command string) (
 	}
 	if !inst.Running {
 		return "", fmt.Errorf("instance %q is not running (status: %s); start it first", name, inst.Status)
+	}
+	if err := s.waitReady(ctx, name); err != nil {
+		return "", err
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)

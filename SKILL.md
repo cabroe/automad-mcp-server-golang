@@ -271,12 +271,12 @@ auto-generated dashboard credentials, or to debug a crash-looping container.
 Runs one of Automad's own CLI commands (`php automad/console <command>`)
 inside a running instance.
 
-**Parameters:** `name` (required), `command` (required) — one of `clearcache`, `purge`, `createuser`, `update`.
+**Parameters:** `name` (required), `command` (required) — one of `cache:clear`, `cache:purge`, `user:create`, `update`.
 
 **Example call:**
 
 ```json
-{ "name": "demo-theme", "command": "createuser" }
+{ "name": "demo-theme", "command": "user:create" }
 ```
 
 ## Typical prompts

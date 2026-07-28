@@ -40,7 +40,7 @@ Create and remotely control real Automad sites running in Docker (official `auto
 | `set_automad_instance_state` | Start, stop, or restart an instance |
 | `remove_automad_instance` | Stop and remove an instance, optionally deleting its data |
 | `get_automad_instance_logs` | Fetch recent container logs (e.g. the auto-generated dashboard credentials) |
-| `run_automad_console_command` | Run one of Automad's own console commands (`clearcache`, `purge`, `createuser`, `update`) inside an instance |
+| `run_automad_console_command` | Run one of Automad's own console commands (`cache:clear`, `cache:purge`, `user:create`, `update`) inside an instance |
 
 Every container these tools create is labeled `managed-by=automad-mcp-server`, and every lifecycle action re-checks that label before acting — so this server can only ever affect containers it created itself.
 
@@ -224,7 +224,7 @@ make run
 - **Documentation Strategy**: Live-fetch from automad.org with in-memory cache
 - **Starter Kit Strategy**: Live access to the GitHub REST API (Git Trees API for `list_files`, Contents API for `get_file_content`) with in-memory caching, rate limit tracking (`X-RateLimit-*` headers), and embedded fallbacks for curated snippet files during API downtime
 - **Cache Warmup**: Concurrently warms sitemap pages and supported Starter Kit files (max 5 parallel, 2 min timeout) on startup so `search_docs`/`search_code` can perform full-text searches from the beginning. Concurrent cache misses for the same page/file are deduplicated.
-- **Instance Strategy**: Shells out to the `docker` CLI (no Docker SDK dependency) with argument slices only — never an interpolated shell string. Every container is labeled `managed-by=automad-mcp-server`, and every lifecycle call re-verifies that label before acting, so the server can never affect a container it didn't create. `run_automad_console_command` is restricted to Automad's four documented console subcommands rather than arbitrary shell execution. Availability of Docker itself is checked lazily per call, so its absence never affects the docs/Starter Kit tools
+- **Instance Strategy**: Shells out to the `docker` CLI (no Docker SDK dependency) with argument slices only — never an interpolated shell string. Every container is labeled `managed-by=automad-mcp-server`, and every lifecycle call re-verifies that label before acting, so the server can never affect a container it didn't create. `create_automad_instance` waits for Automad's first-run installation to create the console before returning. `run_automad_console_command` is restricted to Automad's four documented console subcommands rather than arbitrary shell execution. Availability of Docker itself is checked lazily per call, so its absence never affects the docs/Starter Kit tools
 - **MCP SDK**: Official Go SDK v1.7.0
 
 ## License
