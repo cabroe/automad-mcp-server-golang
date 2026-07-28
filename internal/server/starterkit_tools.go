@@ -238,18 +238,19 @@ repository, without fetching its content.`,
 			return toolError("path must not be empty"), nil, nil
 		}
 
-		usedFallback, err := svc.ValidateFilePath(ctx, input.Path)
-		if err != nil {
-			return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
+		verificationNote := ""
+		if err := svc.ValidateFilePath(ctx, input.Path); err != nil {
+			if strings.Contains(err.Error(), "cannot be verified") {
+				verificationNote = "\n\n⚠️ File existence could not be verified because GitHub is unavailable."
+			} else {
+				return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
+			}
 		}
 		rawURL, blobURL, err := svc.FileURLs(input.Path)
 		if err != nil {
 			return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
 		}
-		msg := fmt.Sprintf("Raw:    %s\nGitHub: %s", rawURL, blobURL)
-		if usedFallback {
-			msg += "\n\n⚠️ File existence was checked against a bundled fallback tree because GitHub was unavailable."
-		}
+		msg := fmt.Sprintf("Raw:    %s\nGitHub: %s%s", rawURL, blobURL, verificationNote)
 		return toolText(msg), nil, nil
 	})
 }

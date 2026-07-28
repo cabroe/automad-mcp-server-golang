@@ -7,6 +7,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -79,8 +80,9 @@ start Automad auto-generates a dashboard user; retrieve the credentials with get
 
 		inst, err := svc.Create(ctx, input.Name, input.Port, input.Image)
 		if err != nil {
-			if existing, getErr := svc.Get(ctx, input.Name); getErr == nil {
-				return toolError(fmt.Sprintf("Instance %q was created but did not become ready: %v\n\nCurrent instance:\n%s\nUse get_automad_instance_logs to inspect initialization or remove_automad_instance to clean up.", input.Name, err, formatInstance(*existing, true))), nil, nil
+			var notReady *instances.NotReadyError
+			if errors.As(err, &notReady) {
+				return toolError(fmt.Sprintf("%v\n\nCurrent instance:\n%s\nUse get_automad_instance_logs to inspect initialization or remove_automad_instance to clean up.", err, formatInstance(*notReady.Instance, true))), nil, nil
 			}
 			return toolError(fmt.Sprintf("Failed to create instance %q: %v", input.Name, err)), nil, nil
 		}

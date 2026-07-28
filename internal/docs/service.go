@@ -19,16 +19,27 @@ const DefaultCacheTTL = 1 * time.Hour
 // Service is the main entry point for fetching Automad documentation.
 // It combines the Fetcher, Parser, and Cache into a single convenient API.
 type Service struct {
-	fetcher *Fetcher
-	cache   *Cache
-	group   singleflight.Group
+	lifecycle context.Context
+	fetcher   *Fetcher
+	cache     *Cache
+	group     singleflight.Group
 }
 
 // NewService creates a new Service with default settings.
 func NewService() *Service {
+	return NewServiceWithContext(context.Background())
+}
+
+// NewServiceWithContext creates a service whose shared fetches stop when the
+// server lifecycle context is canceled.
+func NewServiceWithContext(ctx context.Context) *Service {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &Service{
-		fetcher: NewFetcher(),
-		cache:   NewCache(DefaultCacheTTL),
+		lifecycle: ctx,
+		fetcher:   NewFetcher(),
+		cache:     NewCache(DefaultCacheTTL),
 	}
 }
 
@@ -41,6 +52,9 @@ func NormalizeURL(value string) string {
 	}
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.IsAbs() || parsed.Host != "" {
+		return ""
+	}
+	if parsed.Path == "" && (parsed.RawQuery != "" || parsed.Fragment != "") {
 		return ""
 	}
 	value = parsed.Path
@@ -81,7 +95,7 @@ func (s *Service) GetPage(ctx context.Context, url string) (*Page, error) {
 			return cached, nil
 		}
 
-		rawHTML, err := s.fetcher.Fetch(context.Background(), url)
+		rawHTML, err := s.fetcher.Fetch(s.lifecycle, url)
 		if err != nil {
 			return nil, fmt.Errorf("fetching page %s: %w", url, err)
 		}

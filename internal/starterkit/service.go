@@ -2,6 +2,7 @@ package starterkit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
@@ -25,16 +26,27 @@ const maxWarmFileSize = 100 * 1024
 // repository. It combines the Client and Cache into a single convenient API,
 // mirroring the shape of docs.Service.
 type Service struct {
-	client *Client
-	cache  *Cache
-	group  singleflight.Group
+	lifecycle context.Context
+	client    *Client
+	cache     *Cache
+	group     singleflight.Group
 }
 
 // NewService creates a new Service with default settings.
 func NewService() *Service {
+	return NewServiceWithContext(context.Background())
+}
+
+// NewServiceWithContext creates a service whose shared GitHub requests stop
+// when the server lifecycle context is canceled.
+func NewServiceWithContext(ctx context.Context) *Service {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &Service{
-		client: NewClient(),
-		cache:  NewCache(DefaultCacheTTL),
+		lifecycle: ctx,
+		client:    NewClient(),
+		cache:     NewCache(DefaultCacheTTL),
 	}
 }
 
@@ -74,7 +86,7 @@ func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
 		if t := s.cache.GetTree(); t != nil {
 			return t, nil
 		}
-		t, err := s.client.GetTree(context.Background())
+		t, err := s.client.GetTree(s.lifecycle)
 		if err != nil {
 			return nil, err
 		}
@@ -86,10 +98,29 @@ func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
 		return nil, false, ctx.Err()
 	case result := <-resultCh:
 		if result.Err != nil {
-			return fallbackTree(), true, nil
+			if isFallbackEligible(result.Err) {
+				return fallbackTree(), true, nil
+			}
+			return nil, false, result.Err
 		}
 		return result.Val.(*Tree), false, nil
 	}
+}
+
+func isFallbackEligible(err error) bool {
+	if err == nil {
+		return false
+	}
+	var rateErr *RateLimitError
+	if errors.As(err, &rateErr) {
+		return true
+	}
+	var notFound *NotFoundError
+	if errors.As(err, &notFound) {
+		return false
+	}
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+		strings.Contains(err.Error(), "requesting ")
 }
 
 // NormalizeRepositoryPath validates and canonicalizes a repository-relative
@@ -145,7 +176,7 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 		if content, ok := s.cache.GetFile(path); ok {
 			return content, nil
 		}
-		content, err := s.client.GetContents(context.Background(), path)
+		content, err := s.client.GetContents(s.lifecycle, path)
 		if err != nil {
 			return nil, err
 		}
@@ -157,8 +188,10 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 		return nil, false, ctx.Err()
 	case result := <-resultCh:
 		if result.Err != nil {
-			if fb, ok := fallbackFiles[path]; ok {
-				return []byte(fb), true, nil
+			if isFallbackEligible(result.Err) {
+				if fb, ok := fallbackFiles[path]; ok {
+					return []byte(fb), true, nil
+				}
 			}
 			return nil, false, result.Err
 		}
@@ -166,26 +199,26 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 	}
 }
 
-// ValidateFilePath verifies that filePath names an existing file in the
-// repository tree. It returns whether a fallback tree was used.
-func (s *Service) ValidateFilePath(ctx context.Context, filePath string) (bool, error) {
+// ValidateFilePath verifies that filePath names an existing file in the live
+// repository tree. A fallback listing is not treated as authoritative.
+func (s *Service) ValidateFilePath(ctx context.Context, filePath string) error {
 	filePath, err := NormalizeRepositoryPath(filePath)
 	if err != nil {
-		return false, err
+		return err
 	}
 	tree, fallback, err := s.ListFiles(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if fallback {
-		return false, fmt.Errorf("GitHub is unavailable; existence of repository file %q cannot be verified against the live repository", filePath)
+		return fmt.Errorf("GitHub is unavailable; existence of repository file %q cannot be verified against the live repository", filePath)
 	}
 	for _, entry := range tree.Entries {
 		if entry.Path == filePath && entry.IsFile() {
-			return fallback, nil
+			return nil
 		}
 	}
-	return fallback, fmt.Errorf("repository file %q does not exist", filePath)
+	return fmt.Errorf("repository file %q does not exist", filePath)
 }
 
 // FileURLs returns the direct raw-content URL and the human-browsable GitHub

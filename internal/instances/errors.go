@@ -2,6 +2,18 @@ package instances
 
 import "fmt"
 
+// NotReadyError indicates that Docker created the container but Automad did
+// not pass its readiness probe. The instance remains available for inspection.
+type NotReadyError struct {
+	Instance *Instance
+	Cause    error
+}
+
+func (e *NotReadyError) Error() string {
+	return fmt.Sprintf("instance %q was created but did not become ready: %v", e.Instance.Name, e.Cause)
+}
+func (e *NotReadyError) Unwrap() error { return e.Cause }
+
 // NotFoundError indicates no container with the given name, managed by this
 // server (see ManagedByLabel), currently exists.
 type NotFoundError struct {

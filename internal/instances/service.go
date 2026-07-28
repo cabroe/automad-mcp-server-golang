@@ -72,6 +72,9 @@ func (s *Service) containerName(name string) string {
 }
 
 func (s *Service) getUnchecked(ctx context.Context, name string) (*Instance, error) {
+	if err := ValidateName(name); err != nil {
+		return nil, err
+	}
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
 	defer cancel()
 
@@ -163,9 +166,11 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 	}
 
 	if err := s.waitReady(ctx, name); err != nil {
-		// Keep the running container and persistent data so callers can inspect
-		// logs or retry after a slow image initialization.
-		return nil, err
+		inst, getErr := s.getUnchecked(ctx, name)
+		if getErr != nil {
+			return nil, err
+		}
+		return nil, &NotReadyError{Instance: inst, Cause: err}
 	}
 	return s.getUnchecked(ctx, name)
 }
@@ -283,8 +288,15 @@ func (s *Service) SetState(ctx context.Context, name string, state InstanceState
 	if !isValidState(state) {
 		return fmt.Errorf("invalid state %q; must be one of %v", state, ValidStates)
 	}
-	if _, err := s.Get(ctx, name); err != nil {
+	inst, err := s.Get(ctx, name)
+	if err != nil {
 		return err
+	}
+	if state == StateStop && !inst.Running {
+		return nil
+	}
+	if state == StateStart && inst.Running {
+		return nil
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
@@ -304,7 +316,15 @@ func (s *Service) SetState(ctx context.Context, name string, state InstanceState
 // Remove stops (if needed) and deletes an instance's container. If
 // deleteData is true, its data directory is also permanently deleted.
 func (s *Service) Remove(ctx context.Context, name string, deleteData bool) error {
-	if _, err := s.Get(ctx, name); err != nil {
+	if err := ValidateName(name); err != nil {
+		return err
+	}
+	_, err := s.Get(ctx, name)
+	if err != nil {
+		var notFound *NotFoundError
+		if deleteData && errors.As(err, &notFound) {
+			return os.RemoveAll(s.dataDir(name))
+		}
 		return err
 	}
 

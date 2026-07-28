@@ -72,7 +72,7 @@ func run(logger *slog.Logger) error {
 	)
 
 	// Initialize the documentation service (fetcher + parser + cache).
-	svc := docs.NewService()
+	svc := docs.NewServiceWithContext(ctx)
 	logger.Info("documentation service ready",
 		"pages", fmt.Sprintf("%d pages in sitemap", len(docs.Sitemap())),
 		"cache_ttl", docs.DefaultCacheTTL,
@@ -80,7 +80,7 @@ func run(logger *slog.Logger) error {
 
 	// Initialize the Starter Kit service (GitHub API client + cache), giving
 	// access to the automadcms/automad-theme-starter-kit repository.
-	skSvc := starterkit.NewService()
+	skSvc := starterkit.NewServiceWithContext(ctx)
 	if err := skSvc.ConfigError(); err != nil {
 		logger.Warn("starter kit configuration invalid; tools will return errors", "err", err)
 	}
@@ -108,17 +108,19 @@ func run(logger *slog.Logger) error {
 		logger.Info("docs cache warm-up complete", "warmed", warmed)
 	}()
 
-	go func() {
-		warmCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
+	if skSvc.ConfigError() == nil {
+		go func() {
+			warmCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
 
-		warmed, err := skSvc.WarmFiles(warmCtx)
-		if err != nil {
-			logger.Warn("starter kit cache warm-up finished with errors", "warmed", warmed, "err", err)
-			return
-		}
-		logger.Info("starter kit cache warm-up complete", "warmed", warmed)
-	}()
+			warmed, err := skSvc.WarmFiles(warmCtx)
+			if err != nil {
+				logger.Warn("starter kit cache warm-up finished with errors", "warmed", warmed, "err", err)
+				return
+			}
+			logger.Info("starter kit cache warm-up complete", "warmed", warmed)
+		}()
+	}
 
 	// Initialize the instance management service (Docker CLI wrapper). This
 	// never fails at startup even if Docker isn't installed/running — that's
