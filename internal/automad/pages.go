@@ -2,9 +2,11 @@ package automad
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // PagesInput selects a page action and carries its parameters. Optional scalar
@@ -69,7 +71,7 @@ func (s *Service) Pages(ctx context.Context, in PagesInput) (any, error) {
 		if _, err := s.gate(actPageGet, in.URL, in.ConfirmToken); err != nil {
 			return nil, err
 		}
-		return s.client.post(ctx, APIBase+"/page/data", map[string]any{"url": normalizeURL(in.URL)})
+		return s.readPageWithRetry(ctx, normalizeURL(in.URL))
 
 	case "recent", "list":
 		if _, err := s.gate(actPageRecent, "/", in.ConfirmToken); err != nil {
@@ -223,13 +225,11 @@ func (s *Service) createPage(ctx context.Context, in PagesInput) (any, error) {
 	if slug != "" {
 		result["url"] = slug
 		if in.Publish == nil || *in.Publish {
-			published, perr := s.client.post(ctx, APIBase+"/page/publish", map[string]any{"url": slug})
-			if perr != nil {
-				result["published"] = false
-				result["warning"] = "page created but publish failed: " + perr.Error()
-			} else {
-				result["published"] = true
-				result["publish_result"] = published
+			published, canonical, warnings := s.publishAndVerify(ctx, slug)
+			result["url"] = canonical
+			result["published"] = published
+			if len(warnings) > 0 {
+				result["warnings"] = warnings
 			}
 		}
 	}
@@ -290,19 +290,19 @@ func (s *Service) updatePage(ctx context.Context, in PagesInput) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The save's redirect can report a stale slug; publish by the original URL
+	// (still valid) and let publishAndVerify resolve the authoritative one.
 	resultingURL := page
 	if slug := slugFromResult(saved); slug != "" {
 		resultingURL = slug
 	}
 	result := map[string]any{"ok": true, "url": resultingURL}
 	if in.Publish == nil || *in.Publish {
-		published, perr := s.client.post(ctx, APIBase+"/page/publish", map[string]any{"url": resultingURL})
-		if perr != nil {
-			result["published"] = false
-			result["warning"] = "page saved but publish failed: " + perr.Error()
-		} else {
-			result["published"] = true
-			result["publish_result"] = published
+		published, canonical, warnings := s.publishAndVerify(ctx, page)
+		result["url"] = canonical
+		result["published"] = published
+		if len(warnings) > 0 {
+			result["warnings"] = warnings
 		}
 	}
 	return result, nil
@@ -320,10 +320,12 @@ func (s *Service) deletePage(ctx context.Context, in PagesInput) (any, error) {
 		return nil, err
 	}
 	// The deleted page keeps being served from cache otherwise.
-	if _, cerr := s.client.post(ctx, APIBase+"/cache/clear", map[string]any{}); cerr != nil {
-		return map[string]any{"deleted": deleted, "warning": "deleted but cache clear failed: " + cerr.Error()}, nil
+	warnings := s.clearCache(ctx)
+	out := map[string]any{"deleted": deleted}
+	if len(warnings) > 0 {
+		out["warnings"] = warnings
 	}
-	return map[string]any{"deleted": deleted}, nil
+	return out, nil
 }
 
 func (s *Service) movePage(ctx context.Context, in PagesInput) (any, error) {
@@ -341,6 +343,99 @@ func (s *Service) movePage(ctx context.Context, in PagesInput) (any, error) {
 		payload["layout"] = in.Layout
 	}
 	return s.client.post(ctx, APIBase+"/page/move", payload)
+}
+
+const (
+	// publishPollInterval and publishPollTimeout bound how long publishAndVerify
+	// waits for v2 to actually report a page as published.
+	publishPollInterval = 200 * time.Millisecond
+	publishPollTimeout  = 3 * time.Second
+
+	// readRetryInterval and readRetryTimeout bound the retry window for reading a
+	// page that may not be queryable immediately after creation.
+	readRetryInterval = 200 * time.Millisecond
+	readRetryTimeout  = 3 * time.Second
+)
+
+// publishAndVerify publishes publishURL and confirms it *actually* became
+// published, returning the page's authoritative URL.
+//
+// Two v2 quirks are handled here. (1) A bare /page/publish can return success
+// while the page stays a draft, and /page/data serves drafts too — so
+// publication is confirmed via /page/get-publication-state (isPublished), and
+// the render cache is cleared on success (v2 serves cached HTML for up to
+// AM_CACHE_MONITOR_DELAY, 120s). (2) A save's `redirect` can report a stale
+// slug, so we always publish by the caller-supplied URL (which stays valid) and
+// take the current slug from the publish response's own redirect. It never
+// throws: a page that saved but did not publish is reported, not hidden.
+func (s *Service) publishAndVerify(ctx context.Context, publishURL string) (bool, string, []string) {
+	var warnings []string
+	res, err := s.client.post(ctx, APIBase+"/page/publish", map[string]any{"url": publishURL})
+	if err != nil {
+		return false, publishURL, append(warnings,
+			"saved, but publishing failed ("+err.Error()+") — the page is still a draft and is not visible to visitors; retry with the publish action")
+	}
+	// The publish response's redirect carries the authoritative current slug
+	// (a title change regenerates it); fall back to the input URL.
+	url := publishURL
+	if slug := slugFromResult(res); slug != "" {
+		url = slug
+	}
+
+	deadline := time.Now().Add(publishPollTimeout)
+	for {
+		state, serr := s.client.post(ctx, APIBase+"/page/get-publication-state", map[string]any{"url": url})
+		if serr == nil {
+			if m, ok := state.(map[string]any); ok {
+				if published, _ := m["isPublished"].(bool); published {
+					return true, url, append(warnings, s.clearCache(ctx)...)
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return false, url, append(warnings, "publish state check was cancelled: "+ctx.Err().Error())
+		case <-time.After(publishPollInterval):
+		}
+	}
+	return false, url, append(warnings,
+		"publishing was accepted but "+url+" is not yet reported as published; verify with the publication_state action")
+}
+
+// clearCache empties v2's rendered-page cache. Best effort: a write that already
+// reached Automad is not undone by a cache that refused to clear, so a failure
+// is reported as a warning rather than an error.
+func (s *Service) clearCache(ctx context.Context) []string {
+	if _, err := s.client.post(ctx, APIBase+"/cache/clear", map[string]any{}); err != nil {
+		return []string{"the page cache could not be cleared (" + err.Error() +
+			"); visitors may keep seeing the previous version for up to ~120s (AM_CACHE_MONITOR_DELAY)"}
+	}
+	return nil
+}
+
+// readPageWithRetry reads a page, retrying briefly on upstream errors because a
+// freshly created page can be momentarily unqueryable. Input errors (validation,
+// auth, forbidden) fail fast — retrying cannot help them.
+func (s *Service) readPageWithRetry(ctx context.Context, page string) (any, error) {
+	deadline := time.Now().Add(readRetryTimeout)
+	for {
+		res, err := s.client.post(ctx, APIBase+"/page/data", map[string]any{"url": page})
+		if err == nil {
+			return res, nil
+		}
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || apiErr.Code != CodeUpstream || time.Now().After(deadline) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(readRetryInterval):
+		}
+	}
 }
 
 // readStoredPage returns a page's current fields (declared + unused) and its

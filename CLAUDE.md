@@ -58,17 +58,23 @@ Talks to Automad v2's **dashboard** JSON API at `/_api` (not a public REST API �
 - **Request envelope**: POST bodies are `multipart/form-data` with `__csrf__` + `__json__` (JSON string). Uploads use the Dropzone contract (`file`, `dz*` fields, no `__json__`).
 - **Response envelope**: `{code, data, error, ...}`. Non-empty `error` (even with HTTP 200) is a failure. `data.message == "No session"` means the session died → re-auth. Add/delete/publish answer with `redirect`/`success` and no `data`.
 - **Write guard** (`AUTOMAD_WRITE_MODE`): `read-only` | `confirm-destructive` (default) | `unrestricted`. Destructive actions in the default mode return a single-use `confirm_token`; the caller re-runs the identical call with it to execute.
+- **Page write invariants** (learned live, covered by `TestLiveBridgeMaturity`):
+  - `update` is a **full-replace save**: read the current page (`fields` + `unused`), merge the caller's changes, and carry the template forward — v2 rejects a save without a title and resets any field/template not in the payload.
+  - **Publish is verified, never assumed:** `/page/publish` can 200 while the page stays a draft, and `/page/data` serves drafts. Confirm via `/page/get-publication-state` (`isPublished`), then clear the render cache (v2 serves stale HTML for ~120s).
+  - A title change **regenerates the slug** and the save's `redirect` can report a stale one. Publish by the caller's URL (still valid) and take the authoritative slug from the publish response's `redirect`.
 
 Env: `AUTOMAD_URL`, `AUTOMAD_USER`, `AUTOMAD_PASS` enable the bridge; `AUTOMAD_WRITE_MODE`, `AUTOMAD_REQUEST_TIMEOUT_MS` tune it.
 
 ### Testing the bridge against a real instance
 
-`TestLiveBridge` (`internal/automad/live_test.go`) skips unless `AUTOMAD_URL` is set. To run it, spin up a disposable instance:
+`TestLiveBridge` and `TestLiveBridgeMaturity` (`internal/automad/live_test.go`) skip unless `AUTOMAD_URL` is set. To run them, spin up a disposable instance:
 
 ```bash
 D=$(mktemp -d); docker run -d --name av2 -p 127.0.0.1:18080:80 -v "$D":/app automad/automad:v2
 # wait for first-run install, then create a known user:
 docker exec av2 php automad/console user:create --username admin --password admin12345 --email a@b.co
+# console-ready != HTTP-ready; wait for login to 200 before running (else: login EOF)
+until [ "$(curl -so /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18080/_api/session/login --data 'name-or-email=admin&password=admin12345')" = 200 ]; do sleep 1; done
 AUTOMAD_URL=http://127.0.0.1:18080 AUTOMAD_USER=admin AUTOMAD_PASS=admin12345 \
   go test ./internal/automad -run TestLiveBridge -v
 docker rm -f av2   # cleanup
