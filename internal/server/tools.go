@@ -15,17 +15,17 @@ import (
 
 // searchDocsInput is the input schema for the search_docs tool.
 type searchDocsInput struct {
-	Query string `json:"query" jsonschema:"description=The search query to find relevant Automad documentation pages,minLength=1"`
+	Query string `json:"query" jsonschema:"The search query to find relevant Automad documentation pages"`
 }
 
 // getPageInput is the input schema for the get_page tool.
 type getPageInput struct {
-	URL string `json:"url" jsonschema:"description=Relative URL of the documentation page (e.g. '/user-guide/creating-pages')"`
+	URL string `json:"url" jsonschema:"Relative URL of the documentation page (e.g. '/user-guide/creating-pages')"`
 }
 
 // listPagesInput is the input schema for the list_pages tool.
 type listPagesInput struct {
-	Parent string `json:"parent,omitempty" jsonschema:"description=Optional parent section filter (e.g. 'User Guide' or 'System'). Leave empty to list all pages."`
+	Parent string `json:"parent,omitempty" jsonschema:"Optional parent section filter (e.g. 'User Guide' or 'System'). Leave empty to list all pages."`
 }
 
 // RegisterTools adds all Automad documentation tools to the MCP server.
