@@ -65,9 +65,9 @@ var knownSnippets = []SnippetMeta{
 			"newPagelist, renders a filter menu, the pagelist grid block, and pagination.",
 	},
 	{
-		Key:   "page-not-found",
-		Path:  "page_not_found.php",
-		Title: "404 template (page_not_found.php)",
+		Key:         "page-not-found",
+		Path:        "page_not_found.php",
+		Title:       "404 template (page_not_found.php)",
 		Description: "Template rendered for unresolved URLs. Reuses the page component, same as any other template.",
 	},
 	{

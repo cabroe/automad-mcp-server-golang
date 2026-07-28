@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // DefaultCacheTTL is the time documentation pages stay cached in memory.
@@ -17,6 +19,7 @@ const DefaultCacheTTL = 1 * time.Hour
 type Service struct {
 	fetcher *Fetcher
 	cache   *Cache
+	group   singleflight.Group
 }
 
 // NewService creates a new Service with default settings.
@@ -44,17 +47,26 @@ func (s *Service) GetPage(ctx context.Context, url string) (*Page, error) {
 		return cached, nil
 	}
 
-	// Fetch raw HTML.
-	rawHTML, err := s.fetcher.Fetch(ctx, url)
+	// Deduplicate concurrent cache misses for the same URL. This avoids
+	// duplicate HTTP requests during warm-up or bursts of MCP calls.
+	value, err, _ := s.group.Do(url, func() (any, error) {
+		if cached := s.cache.Get(url); cached != nil {
+			return cached, nil
+		}
+
+		rawHTML, err := s.fetcher.Fetch(ctx, url)
+		if err != nil {
+			return nil, fmt.Errorf("fetching page %s: %w", url, err)
+		}
+
+		page := Parse(rawHTML, url)
+		s.cache.Set(url, page)
+		return page, nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("fetching page %s: %w", url, err)
+		return nil, err
 	}
-
-	// Parse into a structured Page.
-	page := Parse(rawHTML, url)
-	s.cache.Set(url, page)
-
-	return page, nil
+	return value.(*Page), nil
 }
 
 // warmCacheConcurrency bounds how many documentation pages WarmCache fetches

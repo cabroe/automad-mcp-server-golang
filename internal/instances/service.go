@@ -76,6 +76,9 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}
+	if port < 0 || port > 65535 {
+		return nil, fmt.Errorf("invalid port %d: must be between 1 and 65535, or 0 for automatic assignment", port)
+	}
 	if err := s.EnsureAvailable(ctx); err != nil {
 		return nil, err
 	}

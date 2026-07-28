@@ -30,18 +30,28 @@ func NewCache(ttl time.Duration) *Cache {
 }
 
 // Get retrieves a cached page by URL. Returns nil if not found or expired.
+// Expired entries are removed lazily to avoid retaining stale pages.
 func (c *Cache) Get(url string) *Page {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	entry, ok := c.pages[url]
 	if !ok {
+		c.mu.RUnlock()
 		return nil
 	}
-	if time.Now().After(entry.expiresAt) {
-		return nil
+	expired := time.Now().After(entry.expiresAt)
+	if !expired {
+		page := entry.content
+		c.mu.RUnlock()
+		return page
 	}
-	return entry.content
+	c.mu.RUnlock()
+
+	c.mu.Lock()
+	if current, exists := c.pages[url]; exists && time.Now().After(current.expiresAt) {
+		delete(c.pages, url)
+	}
+	c.mu.Unlock()
+	return nil
 }
 
 // Set stores a page in the cache.

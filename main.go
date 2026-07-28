@@ -39,8 +39,10 @@ import (
 )
 
 const (
-	serverName    = "automad-docs"
-	serverVersion = "1.0.0"
+	serverName = "automad-docs"
+	// version is overridden for release builds with:
+	// go build -ldflags "-X main.version=<version>".
+	version = "dev"
 )
 
 func main() {
@@ -65,7 +67,7 @@ func run(logger *slog.Logger) error {
 
 	logger.Info("starting Automad MCP server",
 		"name", serverName,
-		"version", serverVersion,
+		"version", version,
 		"transport", "stdio",
 	)
 
@@ -137,7 +139,7 @@ func run(logger *slog.Logger) error {
 	// Create the MCP server.
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
-		Version: serverVersion,
+		Version: version,
 	}, &mcp.ServerOptions{
 		Instructions: fmt.Sprintf(`This MCP server provides access to the official Automad CMS documentation (https://automad.org),
 the official Automad Theme Starter Kit repository (https://github.com/%s/%s), and the ability to

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // warmFilesConcurrency bounds how many files WarmFiles fetches in parallel.
@@ -23,6 +25,7 @@ const maxWarmFileSize = 100 * 1024
 type Service struct {
 	client *Client
 	cache  *Cache
+	group  singleflight.Group
 }
 
 // NewService creates a new Service with default settings.
@@ -59,13 +62,21 @@ func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
 		return t, false, nil
 	}
 
-	t, err := s.client.GetTree(ctx)
+	value, err, _ := s.group.Do("tree", func() (any, error) {
+		if t := s.cache.GetTree(); t != nil {
+			return t, nil
+		}
+		t, err := s.client.GetTree(ctx)
+		if err != nil {
+			return nil, err
+		}
+		s.cache.SetTree(t)
+		return t, nil
+	})
 	if err != nil {
 		return fallbackTree(), true, nil
 	}
-
-	s.cache.SetTree(t)
-	return t, false, nil
+	return value.(*Tree), false, nil
 }
 
 // GetFileContent returns the content of a single file, using the cache when
@@ -85,16 +96,24 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 		return content, false, nil
 	}
 
-	content, err := s.client.GetContents(ctx, path)
+	value, err, _ := s.group.Do("file:"+path, func() (any, error) {
+		if content, ok := s.cache.GetFile(path); ok {
+			return content, nil
+		}
+		content, err := s.client.GetContents(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		s.cache.SetFile(path, content)
+		return content, nil
+	})
 	if err != nil {
 		if fb, ok := fallbackFiles[path]; ok {
 			return []byte(fb), true, nil
 		}
 		return nil, false, err
 	}
-
-	s.cache.SetFile(path, content)
-	return content, false, nil
+	return value.([]byte), false, nil
 }
 
 // FileURLs returns the direct raw-content URL and the human-browsable GitHub

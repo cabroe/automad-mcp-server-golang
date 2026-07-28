@@ -34,10 +34,10 @@ type Client struct {
 	token      string
 	branch     string
 
-	mu             sync.Mutex
-	rateKnown      bool
-	rateRemaining  int
-	rateResetAt    time.Time
+	mu            sync.Mutex
+	rateKnown     bool
+	rateRemaining int
+	rateResetAt   time.Time
 }
 
 // NewClient creates a Client for the Starter Kit repository. If the

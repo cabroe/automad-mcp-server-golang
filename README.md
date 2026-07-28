@@ -116,6 +116,7 @@ The instance tools work out of the box (Docker required) but can be configured v
 |---|---|---|
 | `AUTOMAD_INSTANCES_DIR` | `~/.automad-mcp-server/instances` | Base directory for instance data (each instance gets its own subdirectory) |
 | `AUTOMAD_DOCKER_IMAGE` | `automad/automad:v2` | Default image for new instances |
+| `AUTOMAD_STARTER_KIT_REF` | `master` | Git branch or tag used by the Starter Kit tools |
 
 The server shells out to the `docker` CLI, so it also honors standard Docker environment variables like `DOCKER_HOST`/`DOCKER_CONTEXT` if you want to point it at a remote Docker daemon.
 
@@ -206,8 +207,11 @@ automad-mcp-server-golang/
 # Run tests
 make test
 
-# Build binary
-make build
+# Run the complete local quality gate
+make check
+
+# Build a versioned binary
+make build VERSION=1.0.0
 
 # Start directly
 make run
@@ -219,9 +223,9 @@ make run
 - **Cache TTL**: 1 hour (configurable in `docs/service.go` or `starterkit/starterkit.go`)
 - **Documentation Strategy**: Live-fetch from automad.org with in-memory cache
 - **Starter Kit Strategy**: Live access to the GitHub REST API (Git Trees API for `list_files`, Contents API for `get_file_content`) with in-memory caching, rate limit tracking (`X-RateLimit-*` headers), and embedded fallbacks for curated snippet files during API downtime
-- **Cache Warmup**: Concurrently warms sitemap pages and supported Starter Kit files (max 5 parallel, 2 min timeout) on startup so `search_docs`/`search_code` can perform full-text searches from the beginning
+- **Cache Warmup**: Concurrently warms sitemap pages and supported Starter Kit files (max 5 parallel, 2 min timeout) on startup so `search_docs`/`search_code` can perform full-text searches from the beginning. Concurrent cache misses for the same page/file are deduplicated.
 - **Instance Strategy**: Shells out to the `docker` CLI (no Docker SDK dependency) with argument slices only — never an interpolated shell string. Every container is labeled `managed-by=automad-mcp-server`, and every lifecycle call re-verifies that label before acting, so the server can never affect a container it didn't create. `run_automad_console_command` is restricted to Automad's four documented console subcommands rather than arbitrary shell execution. Availability of Docker itself is checked lazily per call, so its absence never affects the docs/Starter Kit tools
-- **MCP Version**: 2026-07-28 (via go-sdk v1.7.0)
+- **MCP SDK**: Official Go SDK v1.7.0
 
 ## License
 

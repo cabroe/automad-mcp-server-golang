@@ -37,13 +37,27 @@ func NewCache(ttl time.Duration) *Cache {
 }
 
 // GetTree returns the cached tree, or nil if it isn't cached or has expired.
+// Expired data is removed lazily.
 func (c *Cache) GetTree() *Tree {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.tree == nil || time.Now().After(c.tree.expiresAt) {
+	entry := c.tree
+	if entry == nil {
+		c.mu.RUnlock()
 		return nil
 	}
-	return c.tree.tree
+	if time.Now().Before(entry.expiresAt) {
+		tree := entry.tree
+		c.mu.RUnlock()
+		return tree
+	}
+	c.mu.RUnlock()
+
+	c.mu.Lock()
+	if c.tree != nil && time.Now().After(c.tree.expiresAt) {
+		c.tree = nil
+	}
+	c.mu.Unlock()
+	return nil
 }
 
 // SetTree stores the repository tree in the cache.
@@ -57,12 +71,24 @@ func (c *Cache) SetTree(t *Tree) {
 // it isn't cached or has expired.
 func (c *Cache) GetFile(path string) ([]byte, bool) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	entry, ok := c.files[path]
-	if !ok || time.Now().After(entry.expiresAt) {
+	if !ok {
+		c.mu.RUnlock()
 		return nil, false
 	}
-	return entry.content, true
+	if time.Now().Before(entry.expiresAt) {
+		content := entry.content
+		c.mu.RUnlock()
+		return content, true
+	}
+	c.mu.RUnlock()
+
+	c.mu.Lock()
+	if current, exists := c.files[path]; exists && time.Now().After(current.expiresAt) {
+		delete(c.files, path)
+	}
+	c.mu.Unlock()
+	return nil, false
 }
 
 // SetFile stores a file's content in the cache.
