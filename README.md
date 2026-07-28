@@ -33,7 +33,8 @@ Ein MCP-Server (**Model Context Protocol**) der die [Automad CMS](https://automa
 
 ### Voraussetzungen
 
-- Go 1.24+
+- Go 1.26+
+
 
 ### Bauen
 
