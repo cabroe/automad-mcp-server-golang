@@ -161,17 +161,21 @@ By default the instance's data directory is kept; pass delete_data=true to perma
 		if strings.TrimSpace(input.Name) == "" {
 			return toolError("name must not be empty"), nil, nil
 		}
-		if err := svc.Remove(ctx, input.Name, input.DeleteData); err != nil {
+		result, err := svc.Remove(ctx, input.Name, input.DeleteData)
+		if err != nil {
 			return toolError(fmt.Sprintf("Failed to remove instance %q: %v", input.Name, err)), nil, nil
 		}
 
-		msg := fmt.Sprintf("Instance %q removed.", input.Name)
-		if input.DeleteData {
-			msg += " Its data directory was also deleted."
-		} else {
-			msg += " Its data directory was kept; create a new instance with the same name to reattach it."
+		var parts []string
+		if result.ContainerRemoved {
+			parts = append(parts, fmt.Sprintf("Instance %q container removed.", input.Name))
 		}
-		return toolText(msg), nil, nil
+		if result.DataDeleted {
+			parts = append(parts, "Its data directory was deleted.")
+		} else if result.ContainerRemoved {
+			parts = append(parts, "Its data directory was kept; call remove_automad_instance again with delete_data=true to delete it.")
+		}
+		return toolText(strings.Join(parts, " ")), nil, nil
 	})
 }
 

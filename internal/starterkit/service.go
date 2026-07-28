@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"path"
 	"path/filepath"
@@ -98,6 +99,9 @@ func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
 		return nil, false, ctx.Err()
 	case result := <-resultCh:
 		if result.Err != nil {
+			if s.lifecycle.Err() != nil {
+				return nil, false, s.lifecycle.Err()
+			}
 			if isFallbackEligible(result.Err) {
 				return fallbackTree(), true, nil
 			}
@@ -119,8 +123,19 @@ func isFallbackEligible(err error) bool {
 	if errors.As(err, &notFound) {
 		return false
 	}
-	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
-		strings.Contains(err.Error(), "requesting ")
+	var statusErr *HTTPStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.Status >= 500 && statusErr.Status <= 599
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded)
 }
 
 // NormalizeRepositoryPath validates and canonicalizes a repository-relative
@@ -188,6 +203,9 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 		return nil, false, ctx.Err()
 	case result := <-resultCh:
 		if result.Err != nil {
+			if s.lifecycle.Err() != nil {
+				return nil, false, s.lifecycle.Err()
+			}
 			if isFallbackEligible(result.Err) {
 				if fb, ok := fallbackFiles[path]; ok {
 					return []byte(fb), true, nil
@@ -211,7 +229,10 @@ func (s *Service) ValidateFilePath(ctx context.Context, filePath string) error {
 		return err
 	}
 	if fallback {
-		return fmt.Errorf("GitHub is unavailable; existence of repository file %q cannot be verified against the live repository", filePath)
+		return &VerificationUnavailableError{Path: filePath, Reason: "GitHub is unavailable"}
+	}
+	if tree.Truncated {
+		return &VerificationUnavailableError{Path: filePath, Reason: "the GitHub repository tree is truncated"}
 	}
 	for _, entry := range tree.Entries {
 		if entry.Path == filePath && entry.IsFile() {

@@ -6,6 +6,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -240,8 +241,9 @@ repository, without fetching its content.`,
 
 		verificationNote := ""
 		if err := svc.ValidateFilePath(ctx, input.Path); err != nil {
-			if strings.Contains(err.Error(), "cannot be verified") {
-				verificationNote = "\n\n⚠️ File existence could not be verified because GitHub is unavailable."
+			var unavailable *starterkit.VerificationUnavailableError
+			if errors.As(err, &unavailable) {
+				verificationNote = fmt.Sprintf("\n\n⚠️ %v.", unavailable)
 			} else {
 				return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
 			}

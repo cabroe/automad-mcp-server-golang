@@ -294,14 +294,25 @@ func (c *Client) statusError(resp *http.Response, path string) error {
 		return nil
 	case http.StatusNotFound:
 		return &NotFoundError{Path: path}
-	case http.StatusForbidden, http.StatusTooManyRequests:
+	case http.StatusForbidden:
+		c.mu.Lock()
+		remaining := c.rateRemaining
+		resetAt := c.rateResetAt
+		known := c.rateKnown
+		c.mu.Unlock()
+		if known && remaining <= 0 {
+			return &RateLimitError{ResetAt: resetAt}
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return &HTTPStatusError{Status: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+	case http.StatusTooManyRequests:
 		c.mu.Lock()
 		resetAt := c.rateResetAt
 		c.mu.Unlock()
 		return &RateLimitError{ResetAt: resetAt}
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("unexpected status %d from GitHub API: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return &HTTPStatusError{Status: resp.StatusCode, Body: strings.TrimSpace(string(body))}
 	}
 }
 

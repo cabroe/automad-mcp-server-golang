@@ -133,6 +133,9 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 	if image == "" {
 		image = s.image
 	}
+	if image != DefaultImage && image != s.image {
+		return nil, fmt.Errorf("unsupported image %q: instance readiness is guaranteed only for configured image %q", image, s.image)
+	}
 
 	dir := s.dataDir(name)
 	_, statErr := os.Stat(dir)
@@ -313,34 +316,52 @@ func (s *Service) SetState(ctx context.Context, name string, state InstanceState
 	return nil
 }
 
+// RemoveResult describes what Remove actually changed.
+type RemoveResult struct {
+	ContainerRemoved bool
+	DataDeleted      bool
+}
+
 // Remove stops (if needed) and deletes an instance's container. If
 // deleteData is true, its data directory is also permanently deleted.
-func (s *Service) Remove(ctx context.Context, name string, deleteData bool) error {
+func (s *Service) Remove(ctx context.Context, name string, deleteData bool) (RemoveResult, error) {
+	var result RemoveResult
 	if err := ValidateName(name); err != nil {
-		return err
+		return result, err
 	}
 	_, err := s.Get(ctx, name)
 	if err != nil {
 		var notFound *NotFoundError
 		if deleteData && errors.As(err, &notFound) {
-			return os.RemoveAll(s.dataDir(name))
+			if _, statErr := os.Stat(s.dataDir(name)); errors.Is(statErr, os.ErrNotExist) {
+				return result, fmt.Errorf("no retained data found for instance %q", name)
+			} else if statErr != nil {
+				return result, fmt.Errorf("checking retained data for instance %q: %w", name, statErr)
+			}
+			if err := os.RemoveAll(s.dataDir(name)); err != nil {
+				return result, err
+			}
+			result.DataDeleted = true
+			return result, nil
 		}
-		return err
+		return result, err
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
 	defer cancel()
 
 	if _, _, err := s.runner.run(runCtx, "rm", "-f", s.containerName(name)); err != nil {
-		return fmt.Errorf("removing instance %q: %w", name, err)
+		return result, fmt.Errorf("removing instance %q: %w", name, err)
 	}
+	result.ContainerRemoved = true
 
 	if deleteData {
 		if err := os.RemoveAll(s.dataDir(name)); err != nil {
-			return fmt.Errorf("instance %q removed, but deleting its data directory failed: %w", name, err)
+			return result, fmt.Errorf("instance %q removed, but deleting its data directory failed: %w", name, err)
 		}
+		result.DataDeleted = true
 	}
-	return nil
+	return result, nil
 }
 
 // MaxLogTail is the maximum number of log lines returned by Logs.
@@ -393,10 +414,8 @@ func (s *Service) RunConsoleCommand(ctx context.Context, name, command string) (
 	if !inst.Running {
 		return "", fmt.Errorf("instance %q is not running (status: %s); start it first", name, inst.Status)
 	}
-	if err := s.waitReady(ctx, name); err != nil {
-		return "", err
-	}
-
+	// Execute the requested command directly. Readiness is established after
+	// create/start/restart; any later failure should report this command's own error.
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
 	defer cancel()
 

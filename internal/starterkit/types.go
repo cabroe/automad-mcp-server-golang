@@ -51,6 +51,27 @@ func (e *RateLimitError) Error() string {
 	)
 }
 
+// VerificationUnavailableError means the live repository could not provide a
+// complete answer about whether a file exists.
+type VerificationUnavailableError struct {
+	Path   string
+	Reason string
+}
+
+func (e *VerificationUnavailableError) Error() string {
+	return fmt.Sprintf("existence of repository file %q cannot be verified: %s", e.Path, e.Reason)
+}
+
+// HTTPStatusError represents a non-success GitHub response.
+type HTTPStatusError struct {
+	Status int
+	Body   string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("unexpected status %d from GitHub API: %s", e.Status, e.Body)
+}
+
 // NotFoundError indicates the requested path does not exist in the repository.
 type NotFoundError struct {
 	Path string
