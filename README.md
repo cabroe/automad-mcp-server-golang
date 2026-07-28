@@ -39,8 +39,8 @@ Ein MCP-Server (**Model Context Protocol**) der die [Automad CMS](https://automa
 ### Bauen
 
 ```bash
-git clone https://github.com/cabroe/automad-mcp-server
-cd automad-mcp-server
+git clone https://github.com/cabroe/automad-mcp-server-golang
+cd automad-mcp-server-golang
 make build
 # oder direkt:
 go build -o automad-mcp-server .
@@ -51,7 +51,7 @@ go build -o automad-mcp-server .
 Diesen Prompt an einen KI-Coding-Agenten mit Datei-/Shell-Zugriff geben, um den Server automatisch zu bauen und einzurichten:
 
 ```
-Baue den automad-mcp-server aus diesem Repo (`make build` bzw. `go build -o automad-mcp-server .`)
+Baue den automad-mcp-server aus diesem Repo https://github.com/cabroe/automad-mcp-server-golang (`make build` bzw. `go build -o automad-mcp-server .`)
 und trage ihn als MCP-Server "automad-docs" mit dem absoluten Pfad zur Binary in die MCP-Konfiguration
 meines aktuellen Tools ein (z. B. claude_desktop_config.json, .cursor/mcp.json, .mcp.json oder via
 `claude mcp add`). Zeig mir danach die verwendete Konfiguration.
