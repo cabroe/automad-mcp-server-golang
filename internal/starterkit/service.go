@@ -93,6 +93,9 @@ func NormalizeRepositoryPath(value string) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("path must not be empty")
 	}
+	if strings.HasPrefix(value, "//") {
+		return "", fmt.Errorf("path must not start with multiple slashes")
+	}
 	if strings.Contains(value, "\\") || strings.ContainsAny(value, "\x00\r\n") {
 		return "", fmt.Errorf("invalid repository path %q", value)
 	}
@@ -152,6 +155,25 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 		}
 		return result.Val.([]byte), false, nil
 	}
+}
+
+// ValidateFilePath verifies that filePath names an existing file in the
+// repository tree. It returns whether a fallback tree was used.
+func (s *Service) ValidateFilePath(ctx context.Context, filePath string) (bool, error) {
+	filePath, err := NormalizeRepositoryPath(filePath)
+	if err != nil {
+		return false, err
+	}
+	tree, fallback, err := s.ListFiles(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range tree.Entries {
+		if entry.Path == filePath && entry.IsFile() {
+			return fallback, nil
+		}
+	}
+	return fallback, fmt.Errorf("repository file %q does not exist", filePath)
 }
 
 // FileURLs returns the direct raw-content URL and the human-browsable GitHub
@@ -255,6 +277,9 @@ func (s *Service) SearchCode(ctx context.Context, query string, extFilter []stri
 	tree, _, err := s.ListFiles(ctx)
 	if err != nil {
 		return nil, nil, err
+	}
+	if tree.Truncated {
+		return nil, nil, fmt.Errorf("GitHub returned a truncated repository tree; code search would be incomplete")
 	}
 
 	for _, entry := range tree.Entries {

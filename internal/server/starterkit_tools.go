@@ -90,6 +90,9 @@ Use this to discover which files exist before fetching them with get_file_conten
 		if usedFallback {
 			sb.WriteString("⚠️ GitHub API unavailable — showing a bundled fallback listing of the top-level structure, which may be incomplete or outdated.\n")
 		}
+		if tree.Truncated {
+			sb.WriteString("⚠️ GitHub returned a truncated repository tree; this listing may be incomplete.\n")
+		}
 		sb.WriteString("\n")
 		sb.WriteString(starterkit.RenderTree(entries))
 
@@ -234,11 +237,19 @@ repository, without fetching its content.`,
 			return toolError("path must not be empty"), nil, nil
 		}
 
+		usedFallback, err := svc.ValidateFilePath(ctx, input.Path)
+		if err != nil {
+			return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
+		}
 		rawURL, blobURL, err := svc.FileURLs(input.Path)
 		if err != nil {
 			return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
 		}
-		return toolText(fmt.Sprintf("Raw:    %s\nGitHub: %s", rawURL, blobURL)), nil, nil
+		msg := fmt.Sprintf("Raw:    %s\nGitHub: %s", rawURL, blobURL)
+		if usedFallback {
+			msg += "\n\n⚠️ File existence was checked against a bundled fallback tree because GitHub was unavailable."
+		}
+		return toolText(msg), nil, nil
 	})
 }
 

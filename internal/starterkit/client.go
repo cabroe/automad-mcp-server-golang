@@ -61,6 +61,11 @@ func NewClient() *Client {
 	if branch == "" {
 		branch = "master"
 	}
+	// GitHub's /blob/<ref>/<path> and raw URL formats are ambiguous when a
+	// ref contains '/'. Reject unsafe/ambiguous refs and fall back to master.
+	if strings.ContainsAny(branch, "/\\?#\x00\r\n") || strings.Contains(branch, "..") {
+		branch = "master"
+	}
 	return &Client{
 		httpClient: &http.Client{Timeout: requestTimeout},
 		token:      token,
@@ -75,6 +80,30 @@ func (c *Client) Branch() string { return c.branch }
 // useful for surfacing hints ("set GITHUB_TOKEN...") only when it would
 // actually help.
 func (c *Client) Authenticated() bool { return c.token != "" }
+
+// readLimitedJSON reads one complete JSON value, rejects trailing values, and
+// reports responses larger than limit instead of silently truncating them.
+func readLimitedJSON(r io.Reader, limit int64, dst any) error {
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(body)) > limit {
+		return fmt.Errorf("response exceeds maximum size of %d bytes", limit)
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("response contains trailing JSON data")
+		}
+		return err
+	}
+	return nil
+}
 
 // GetTree fetches the full recursive file/directory listing of the
 // repository at the client's branch using the Git Trees API. This is a
@@ -103,8 +132,7 @@ func (c *Client) GetTree(ctx context.Context) (*Tree, error) {
 		Tree      []TreeEntry `json:"tree"`
 		Truncated bool        `json:"truncated"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxAPIResponseSize+1))
-	if err := decoder.Decode(&parsed); err != nil {
+	if err := readLimitedJSON(resp.Body, maxAPIResponseSize, &parsed); err != nil {
 		return nil, fmt.Errorf("decoding tree response: %w", err)
 	}
 
@@ -141,8 +169,7 @@ func (c *Client) GetContents(ctx context.Context, path string) ([]byte, error) {
 		Encoding string `json:"encoding"`
 		Content  string `json:"content"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxAPIResponseSize+1))
-	if err := decoder.Decode(&parsed); err != nil {
+	if err := readLimitedJSON(resp.Body, maxAPIResponseSize, &parsed); err != nil {
 		return nil, fmt.Errorf("decoding contents response for %s: %w", path, err)
 	}
 
@@ -153,10 +180,16 @@ func (c *Client) GetContents(ctx context.Context, path string) ([]byte, error) {
 		return nil, fmt.Errorf("unsupported content encoding %q for %s", parsed.Encoding, path)
 	}
 
-	if len(parsed.Content) > base64.StdEncoding.EncodedLen(maxDecodedFileSize) {
+	encoded := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == ' ' || r == '\t' {
+			return -1
+		}
+		return r
+	}, parsed.Content)
+	if len(encoded) > base64.StdEncoding.EncodedLen(maxDecodedFileSize) {
 		return nil, fmt.Errorf("file %s exceeds maximum size of %d bytes", path, maxDecodedFileSize)
 	}
-	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(parsed.Content, "\n", ""))
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("decoding base64 content of %s: %w", path, err)
 	}

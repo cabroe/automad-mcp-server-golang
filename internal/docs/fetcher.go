@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -61,6 +62,10 @@ func (f *Fetcher) Fetch(ctx context.Context, path string) (string, error) {
 		return "", fmt.Errorf("fetching %s: unexpected status %d", url, resp.StatusCode)
 	}
 
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !strings.HasPrefix(contentType, "text/html") && !strings.HasPrefix(contentType, "application/xhtml+xml") {
+		return "", fmt.Errorf("fetching %s: unexpected content type %q", url, contentType)
+	}
 	if resp.ContentLength > maxResponseSize {
 		return "", fmt.Errorf("response from %s exceeds maximum size of %d bytes", url, maxResponseSize)
 	}

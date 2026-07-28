@@ -71,6 +71,29 @@ func (s *Service) containerName(name string) string {
 	return ContainerPrefix + name
 }
 
+func (s *Service) getUnchecked(ctx context.Context, name string) (*Instance, error) {
+	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
+	defer cancel()
+
+	args := []string{
+		"ps", "-a",
+		"--filter", "label=" + ManagedByLabel,
+		"--filter", "name=^/" + s.containerName(name) + "$",
+		"--format", psFormat,
+	}
+	out, _, err := s.runner.run(runCtx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("looking up instance %q: %w", name, err)
+	}
+	found := parsePsOutput(out)
+	if len(found) == 0 {
+		return nil, &NotFoundError{Name: name}
+	}
+	inst := found[0]
+	inst.DataDir = s.dataDir(inst.Name)
+	return &inst, nil
+}
+
 // Create starts a new Automad Docker instance. port, if zero, is
 // auto-assigned to a free host port. image, if empty, defaults to the
 // service's DefaultImageTag.
@@ -85,7 +108,7 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 		return nil, err
 	}
 
-	if _, err := s.Get(ctx, name); err == nil {
+	if _, err := s.getUnchecked(ctx, name); err == nil {
 		return nil, &AlreadyExistsError{Name: name}
 	} else {
 		var notFound *NotFoundError
@@ -144,7 +167,7 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 		// logs or retry after a slow image initialization.
 		return nil, err
 	}
-	return s.Get(ctx, name)
+	return s.getUnchecked(ctx, name)
 }
 
 // ensureContainerNameAvailable detects collisions with containers not managed
@@ -182,7 +205,7 @@ func (s *Service) waitReady(ctx context.Context, name string) error {
 		}
 		lastErr = err
 
-		inst, getErr := s.Get(readyCtx, name)
+		inst, getErr := s.getUnchecked(readyCtx, name)
 		if getErr != nil {
 			return fmt.Errorf("checking readiness of instance %q: %w", name, getErr)
 		}
@@ -230,28 +253,7 @@ func (s *Service) Get(ctx context.Context, name string) (*Instance, error) {
 		return nil, err
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
-	defer cancel()
-
-	args := []string{
-		"ps", "-a",
-		"--filter", "label=" + ManagedByLabel,
-		"--filter", "name=^/" + s.containerName(name) + "$",
-		"--format", psFormat,
-	}
-	out, _, err := s.runner.run(runCtx, args...)
-	if err != nil {
-		return nil, fmt.Errorf("looking up instance %q: %w", name, err)
-	}
-
-	instances := parsePsOutput(out)
-	if len(instances) == 0 {
-		return nil, &NotFoundError{Name: name}
-	}
-
-	inst := instances[0]
-	inst.DataDir = s.dataDir(inst.Name)
-	return &inst, nil
+	return s.getUnchecked(ctx, name)
 }
 
 // InstanceState is the set of lifecycle actions SetState accepts.
@@ -320,6 +322,8 @@ func (s *Service) Remove(ctx context.Context, name string, deleteData bool) erro
 	}
 	return nil
 }
+
+func MaxLogTail() int { return maxLogTail }
 
 // Logs returns the last `tail` lines of an instance's container logs
 // (stdout and stderr combined, stderr labeled separately if present). This

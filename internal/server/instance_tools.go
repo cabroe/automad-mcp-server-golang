@@ -42,7 +42,7 @@ type removeInstanceInput struct {
 // getInstanceLogsInput is the input schema for get_automad_instance_logs.
 type getInstanceLogsInput struct {
 	Name string `json:"name" jsonschema:"The instance's name."`
-	Tail int    `json:"tail,omitempty" jsonschema:"Number of log lines to return, from the end. Defaults to 100. Use this to find the auto-generated dashboard credentials right after create_automad_instance."`
+	Tail int    `json:"tail,omitempty" jsonschema:"Number of log lines to return, from the end. Defaults to 100; maximum 5000. Use this to find the auto-generated dashboard credentials right after create_automad_instance."`
 }
 
 // runConsoleCommandInput is the input schema for run_automad_console_command.
@@ -179,6 +179,9 @@ Use this right after create_automad_instance to find the auto-generated dashboar
 		if strings.TrimSpace(input.Name) == "" {
 			return toolError("name must not be empty"), nil, nil
 		}
+		if input.Tail > instances.MaxLogTail() {
+			return toolError(fmt.Sprintf("tail must not exceed %d lines", instances.MaxLogTail())), nil, nil
+		}
 		logs, err := svc.Logs(ctx, input.Name, input.Tail)
 		if err != nil {
 			return toolError(fmt.Sprintf("Failed to fetch logs for instance %q: %v", input.Name, err)), nil, nil
@@ -186,7 +189,7 @@ Use this right after create_automad_instance to find the auto-generated dashboar
 		if strings.TrimSpace(logs) == "" {
 			return toolText(fmt.Sprintf("No logs yet for instance %q.", input.Name)), nil, nil
 		}
-		return toolText(fmt.Sprintf("Logs for %q:\n\n```\n%s\n```", input.Name, logs)), nil, nil
+		return toolText(fmt.Sprintf("Logs for %q:\n\n%s", input.Name, markdownFence(logs))), nil, nil
 	})
 }
 
@@ -211,10 +214,18 @@ arbitrary shell execution.`, strings.Join(instances.AllowedConsoleCommands, ", "
 
 		msg := fmt.Sprintf("Ran %q on instance %q.", input.Command, input.Name)
 		if strings.TrimSpace(out) != "" {
-			msg += fmt.Sprintf("\n\n```\n%s\n```", out)
+			msg += "\n\n" + markdownFence(out)
 		}
 		return toolText(msg), nil, nil
 	})
+}
+
+func markdownFence(content string) string {
+	fence := "```"
+	for strings.Contains(content, fence) {
+		fence += "`"
+	}
+	return fmt.Sprintf("%s\n%s\n%s", fence, content, fence)
 }
 
 // formatInstance renders an instance summary. If detailed is true, it
