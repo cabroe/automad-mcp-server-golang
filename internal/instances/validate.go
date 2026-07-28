@@ -2,7 +2,6 @@ package instances
 
 import (
 	"fmt"
-	"net"
 	"regexp"
 )
 
@@ -37,19 +36,4 @@ func ValidateConsoleCommand(command string) error {
 		}
 	}
 	return fmt.Errorf("unknown console command %q; allowed: %v", command, AllowedConsoleCommands)
-}
-
-// findFreePort asks the OS for an unused TCP port by briefly binding to
-// port 0 and immediately releasing it. There's an inherent (tiny) race
-// between releasing the port here and `docker run` binding it moments
-// later, but that's an acceptable trade-off for a local dev tool and
-// mirrors how most "give me a free port" helpers work in the absence of a
-// reservation API.
-func findFreePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("finding a free port: %w", err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
 }

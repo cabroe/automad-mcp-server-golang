@@ -1,5 +1,7 @@
 package docs
 
+import "context"
+
 // NewSeededService creates a Service with a pre-populated cache entry for
 // the given URL and page, bypassing HTTP fetching. This is intended for use
 // in tests to exercise service and server logic without network access.
@@ -8,8 +10,9 @@ package docs
 // a regular empty service is returned.
 func NewSeededService(url string, page *Page) *Service {
 	svc := &Service{
-		fetcher: NewFetcher(),
-		cache:   NewCache(DefaultCacheTTL),
+		lifecycle: context.Background(),
+		fetcher:   NewFetcher(),
+		cache:     NewCache(DefaultCacheTTL),
 	}
 	if url != "" && page != nil {
 		svc.cache.Set(url, page)

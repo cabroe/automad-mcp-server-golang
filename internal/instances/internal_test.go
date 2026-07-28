@@ -105,21 +105,3 @@ func TestParsePsOutput_Empty(t *testing.T) {
 		t.Errorf("expected nil for empty output, got %+v", got)
 	}
 }
-
-func TestFindFreePort_ReturnsUsablePort(t *testing.T) {
-	p1, err := findFreePort()
-	if err != nil {
-		t.Fatalf("findFreePort: %v", err)
-	}
-	if p1 <= 0 || p1 > 65535 {
-		t.Errorf("port %d out of valid range", p1)
-	}
-
-	p2, err := findFreePort()
-	if err != nil {
-		t.Fatalf("findFreePort (second call): %v", err)
-	}
-	if p2 <= 0 || p2 > 65535 {
-		t.Errorf("port %d out of valid range", p2)
-	}
-}

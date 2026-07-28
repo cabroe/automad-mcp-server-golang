@@ -1,5 +1,7 @@
 package starterkit
 
+import "context"
+
 // NewSeededService creates a Service with a pre-populated cache, bypassing
 // GitHub API access entirely. This is intended for use in tests to exercise
 // service and server logic without network access, mirroring
@@ -9,8 +11,9 @@ package starterkit
 // leave the file cache empty.
 func NewSeededService(tree *Tree, files map[string][]byte) *Service {
 	svc := &Service{
-		client: NewClient(),
-		cache:  NewCache(DefaultCacheTTL),
+		lifecycle: context.Background(),
+		client:    NewClient(),
+		cache:     NewCache(DefaultCacheTTL),
 	}
 	if tree != nil {
 		svc.cache.SetTree(tree)

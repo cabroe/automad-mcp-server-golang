@@ -78,6 +78,9 @@ func NormalizeURL(value string) string {
 // (e.g. because the calling MCP client disconnected) aborts the fetch
 // instead of blocking until the fixed fetch timeout elapses.
 func (s *Service) GetPage(ctx context.Context, url string) (*Page, error) {
+	if err := s.lifecycle.Err(); err != nil {
+		return nil, err
+	}
 	url = NormalizeURL(url)
 	if url == "" {
 		return nil, fmt.Errorf("documentation URL must be a relative path")
@@ -108,6 +111,9 @@ func (s *Service) GetPage(ctx context.Context, url string) (*Page, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case result := <-resultCh:
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if result.Err != nil {
 			return nil, result.Err
 		}

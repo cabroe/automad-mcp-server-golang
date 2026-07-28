@@ -63,6 +63,19 @@ func (s *Service) EnsureAvailable(ctx context.Context) error {
 	return s.runner.EnsureAvailable(ctx)
 }
 
+func (s *Service) targetDataDir(name string) (string, error) {
+	base, err := filepath.Abs(s.baseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolving instances directory: %w", err)
+	}
+	target := filepath.Join(base, name)
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
+		return "", fmt.Errorf("instance data path escapes configured base directory")
+	}
+	return target, nil
+}
+
 func (s *Service) dataDir(name string) string {
 	return filepath.Join(s.baseDir, name)
 }
@@ -123,12 +136,11 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 		return nil, err
 	}
 
+	// Let Docker allocate atomically when port is zero, avoiding a free-port
+	// lookup race between probing and container creation.
+	portBinding := fmt.Sprintf("127.0.0.1:%d:%s", port, containerPort)
 	if port == 0 {
-		p, err := findFreePort()
-		if err != nil {
-			return nil, err
-		}
-		port = p
+		portBinding = "127.0.0.1::" + containerPort
 	}
 	if image == "" {
 		image = s.image
@@ -152,7 +164,7 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 		"--name", s.containerName(name),
 		"--label", ManagedByLabel,
 		"--label", nameLabelKey + "=" + name,
-		"-p", fmt.Sprintf("127.0.0.1:%d:%s", port, containerPort),
+		"-p", portBinding,
 		"-v", dir + ":/app",
 		image,
 	}
@@ -169,7 +181,7 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 	}
 
 	if err := s.waitReady(ctx, name); err != nil {
-		inst, getErr := s.getUnchecked(ctx, name)
+		inst, getErr := s.getUnchecked(context.Background(), name)
 		if getErr != nil {
 			return nil, err
 		}
@@ -299,7 +311,7 @@ func (s *Service) SetState(ctx context.Context, name string, state InstanceState
 		return nil
 	}
 	if state == StateStart && inst.Running {
-		return nil
+		return s.waitReady(ctx, name)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
@@ -333,12 +345,16 @@ func (s *Service) Remove(ctx context.Context, name string, deleteData bool) (Rem
 	if err != nil {
 		var notFound *NotFoundError
 		if deleteData && errors.As(err, &notFound) {
-			if _, statErr := os.Stat(s.dataDir(name)); errors.Is(statErr, os.ErrNotExist) {
+			target, pathErr := s.targetDataDir(name)
+			if pathErr != nil {
+				return result, pathErr
+			}
+			if _, statErr := os.Stat(target); errors.Is(statErr, os.ErrNotExist) {
 				return result, fmt.Errorf("no retained data found for instance %q", name)
 			} else if statErr != nil {
 				return result, fmt.Errorf("checking retained data for instance %q: %w", name, statErr)
 			}
-			if err := os.RemoveAll(s.dataDir(name)); err != nil {
+			if err := os.RemoveAll(target); err != nil {
 				return result, err
 			}
 			result.DataDeleted = true
@@ -356,7 +372,11 @@ func (s *Service) Remove(ctx context.Context, name string, deleteData bool) (Rem
 	result.ContainerRemoved = true
 
 	if deleteData {
-		if err := os.RemoveAll(s.dataDir(name)); err != nil {
+		target, pathErr := s.targetDataDir(name)
+		if pathErr != nil {
+			return result, pathErr
+		}
+		if err := os.RemoveAll(target); err != nil {
 			return result, fmt.Errorf("instance %q removed, but deleting its data directory failed: %w", name, err)
 		}
 		result.DataDeleted = true

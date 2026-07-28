@@ -76,6 +76,9 @@ func isSupportedExtension(path string) bool {
 // repository. The second return value reports whether the bundled fallback
 // listing was used because the live GitHub API request failed.
 func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
+	if err := s.lifecycle.Err(); err != nil {
+		return nil, false, err
+	}
 	if err := s.ConfigError(); err != nil {
 		return nil, false, err
 	}
@@ -98,6 +101,9 @@ func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
 	case <-ctx.Done():
 		return nil, false, ctx.Err()
 	case result := <-resultCh:
+		if ctx.Err() != nil {
+			return nil, false, ctx.Err()
+		}
 		if result.Err != nil {
 			if s.lifecycle.Err() != nil {
 				return nil, false, s.lifecycle.Err()
@@ -172,6 +178,9 @@ func NormalizeRepositoryPath(value string) (string, error) {
 // content was used because the live GitHub API request failed; this is only
 // possible for the curated set of paths in fallbackFiles.
 func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool, error) {
+	if err := s.lifecycle.Err(); err != nil {
+		return nil, false, err
+	}
 	if err := s.ConfigError(); err != nil {
 		return nil, false, err
 	}
@@ -202,6 +211,9 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 	case <-ctx.Done():
 		return nil, false, ctx.Err()
 	case result := <-resultCh:
+		if ctx.Err() != nil {
+			return nil, false, ctx.Err()
+		}
 		if result.Err != nil {
 			if s.lifecycle.Err() != nil {
 				return nil, false, s.lifecycle.Err()
@@ -229,10 +241,10 @@ func (s *Service) ValidateFilePath(ctx context.Context, filePath string) error {
 		return err
 	}
 	if fallback {
-		return &VerificationUnavailableError{Path: filePath, Reason: "GitHub is unavailable"}
+		return &VerificationUnavailableError{Path: filePath, Cause: fmt.Errorf("GitHub is unavailable")}
 	}
 	if tree.Truncated {
-		return &VerificationUnavailableError{Path: filePath, Reason: "the GitHub repository tree is truncated"}
+		return &VerificationUnavailableError{Path: filePath, Cause: fmt.Errorf("the GitHub repository tree is truncated")}
 	}
 	for _, entry := range tree.Entries {
 		if entry.Path == filePath && entry.IsFile() {
