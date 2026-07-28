@@ -1,18 +1,20 @@
 ---
 name: automad-mcp-server
-description: Use automad-mcp-server's tools whenever working with Automad CMS — searching/reading the official docs (search_docs, get_page, list_pages), consulting the official Theme Starter Kit repository as a source-of-truth reference implementation (list_files, get_file_content, get_template_snippet, search_code, get_file_url), or creating and remotely controlling disposable Automad instances in Docker to test a theme or workflow end-to-end (create_automad_instance, list_automad_instances, get_automad_instance, set_automad_instance_state, remove_automad_instance, get_automad_instance_logs, run_automad_console_command). Use this whenever building, reviewing, debugging, or testing an Automad theme or site, instead of guessing from general PHP/CMS knowledge or outdated training data.
+description: Use automad-mcp-server's tools whenever working with Automad CMS — searching/reading the official docs, which also work offline from an embedded snapshot (search_docs, get_page, list_pages), consulting the official Theme Starter Kit repository as a source-of-truth reference implementation (list_files, get_file_content, get_template_snippet, search_code, get_file_url), creating and remotely controlling disposable Automad instances in Docker to test a theme or workflow end-to-end (create_automad_instance, list_automad_instances, get_automad_instance, set_automad_instance_state, remove_automad_instance, get_automad_instance_logs, run_automad_console_command), or operating a running Automad v2 site through its dashboard API — creating and editing pages, media, shared data, config/cache, and installed themes/packages (automad_pages, automad_media, automad_shared, automad_config, automad_packages). Use this whenever building, reviewing, debugging, testing, or managing content on an Automad theme or site, instead of guessing from general PHP/CMS knowledge or outdated training data.
 ---
 
 # Automad MCP Server Tools
 
-`automad-mcp-server` exposes three tool families to AI assistants over MCP:
+`automad-mcp-server` exposes four tool families to AI assistants over MCP:
 
-- **Docs tools** (`search_docs`, `get_page`, `list_pages`) — the official Automad documentation.
+- **Docs tools** (`search_docs`, `get_page`, `list_pages`) — the official Automad documentation. Live-fetched, with an embedded offline snapshot so they keep working air-gapped.
 - **Starter Kit tools** (`list_files`, `get_file_content`, `get_template_snippet`, `search_code`, `get_file_url`) — the official [Theme Starter Kit](https://github.com/automadcms/automad-theme-starter-kit) repository as a **source of truth** for real theme code.
 - **Instance tools** (`create_automad_instance`, `list_automad_instances`, `get_automad_instance`, `set_automad_instance_state`, `remove_automad_instance`, `get_automad_instance_logs`, `run_automad_console_command`) — create and remotely control real, disposable Automad sites running in Docker.
+- **Live API bridge tools** (`automad_pages`, `automad_media`, `automad_shared`, `automad_config`, `automad_packages`) — operate a running Automad v2 site through its dashboard API: create/edit content, upload media, change shared data and config, and manage installed themes/packages. Requires credentials (see below).
 
 Use the docs tools to understand a concept, the Starter Kit tools to see a
-real implementation, and the instance tools to actually run and test it.
+real implementation, the instance tools to spin up and run a disposable site,
+and the live API bridge tools to actually create and edit content on it.
 
 > **Note on naming:** the Starter Kit does not have `header.php`/`footer.php`
 > files. Its `components/page.php` file combines both into a single "page
@@ -28,7 +30,7 @@ transport). Install it with Go, then point any MCP-compatible client at it.
 go install github.com/cabroe/automad-mcp-server-golang/cmd/automad-mcp-server@latest
 ```
 
-The binary is written to `$(go env GOPATH)/bin` or `GOBIN`. Until the first semantic-version release is tagged, use `@main` instead of `@latest`.
+The binary is written to `$(go env GOPATH)/bin` or `GOBIN`. `@latest` resolves the newest release tag; pin a version with e.g. `@v0.1.0`. No Go toolchain? Download a prebuilt binary for your platform from the [Releases page](https://github.com/cabroe/automad-mcp-server-golang/releases) instead.
 
 To build from a clone instead:
 
@@ -86,6 +88,35 @@ With a token, the limit rises to 5000 requests/hour. The server also warms
 its cache of Starter Kit files in the background on startup and caches
 everything it fetches for one hour, so a normal session makes very few live
 API calls regardless.
+
+### Optional: enable the live API bridge
+
+The docs, Starter Kit, and instance tools need no credentials. The **live API
+bridge tools** additionally require a running Automad v2 instance and its
+dashboard credentials. Without these three variables the bridge stays disabled
+and its tools return a clear "not configured" message; everything else works.
+
+```json
+{
+  "mcpServers": {
+    "automad-docs": {
+      "command": "/absolute/path/to/automad-mcp-server",
+      "env": {
+        "AUTOMAD_URL": "http://127.0.0.1:8080",
+        "AUTOMAD_USER": "admin",
+        "AUTOMAD_PASS": "your-password",
+        "AUTOMAD_WRITE_MODE": "confirm-destructive"
+      }
+    }
+  }
+}
+```
+
+`AUTOMAD_WRITE_MODE` gates writes: `read-only` (reject all writes),
+`confirm-destructive` (default — non-destructive writes proceed; destructive
+ones need a confirm token) or `unrestricted`. `AUTOMAD_REQUEST_TIMEOUT_MS`
+(default `30000`) tunes the per-request timeout. Point `AUTOMAD_URL` at an
+instance created with the instance tools to drive a disposable site end to end.
 
 ## Tools
 
@@ -287,6 +318,77 @@ inside a running instance.
 { "name": "demo-theme", "command": "user:create" }
 ```
 
+## Live API bridge tools
+
+Operate a **running** Automad v2 site through its dashboard API (`/_api`) —
+create and edit real content rather than only reading about it. Requires the
+`AUTOMAD_URL`/`AUTOMAD_USER`/`AUTOMAD_PASS` credentials (see Installation); when
+unset, every tool here returns a clear "not configured" message.
+
+**Write safety.** All five tools respect `AUTOMAD_WRITE_MODE`. In the default
+`confirm-destructive` mode a destructive action (delete, move, purge, uninstall,
+…) first returns a single-use `confirm_token`; re-run the **identical** call with
+that token to execute it. Non-destructive writes proceed without confirmation.
+
+### `automad_pages`
+
+Full page lifecycle. **Parameters:** `action` (required) plus action-specific
+fields such as `url`, `target_url`, `title`, `template`, `private`, `tags`,
+`fields`, `publish`, `layout`, `history_id`, `confirm_token`.
+
+Actions: `get`, `list`, `create`, `update`, `delete`, `move`, `duplicate`,
+`publish`, `discard_draft`, `publication_state`, `breadcrumbs`, `history`,
+`history_restore`, `trash_list`, `trash_restore`, `trash_permanently_delete`,
+`trash_clear`. `update` is a safe full-replace save: it reads the current page
+and merges your changes, so partial updates never drop existing fields.
+
+**Example call:**
+
+```json
+{ "action": "create", "target_url": "/", "title": "About Us" }
+```
+
+### `automad_media`
+
+Manage files: `list`, `upload` (base64), `import` (from an http(s) URL),
+`delete`. Files attach to a page directory (`url`) or the shared collection
+when `url` is empty or `/`.
+
+**Parameters:** `action` (required), `url`, `filename`, `mime_type`,
+`data_base64`, `import_url`, `confirm_token`.
+
+**Example call:**
+
+```json
+{ "action": "import", "import_url": "https://example.com/logo.svg" }
+```
+
+### `automad_shared`
+
+Read or write site-wide shared data fields: `get` returns all shared fields,
+`set` writes the given ones (a targeted write — only the fields you pass change).
+
+**Parameters:** `action` (required), `fields` (object, required for `set`).
+
+```json
+{ "action": "set", "fields": { "sitename": "My Site" } }
+```
+
+### `automad_config`
+
+Inspect and control configuration and cache: `get` (bootstrap/system info),
+`update` (write a config section), `cache_clear`, `cache_purge`.
+
+**Parameters:** `action` (required), `type`, `payload`, `confirm_token`.
+
+### `automad_packages`
+
+Manage installed Composer packages (themes and extensions): `list_installed`,
+`outdated`, `update`, `update_all`, `uninstall`.
+
+**Parameters:** `action` (required), `package` (required for `update`/`uninstall`),
+`confirm_token`.
+
 ## Typical prompts
 
 - "Show me how the official Automad Starter Kit implements pagination — I want to copy the real pattern, not invent one."
@@ -299,6 +401,10 @@ inside a running instance.
 - "Restart the `demo` instance and tail its logs."
 - "Run the cache-clear console command on `demo`, then remove it entirely including its data."
 - "List every Automad instance I currently have running."
+- "Create an 'About Us' page under the homepage on my live site and publish it."
+- "Import the logo from this URL into my site's media and set the sitename to 'Acme'."
+- "Delete the /old-landing page — and yes, confirm it when you get the token."
+- "List the themes installed on my live Automad instance and whether any are outdated."
 
 ## Design notes
 
@@ -325,3 +431,15 @@ inside a running instance.
   on every lifecycle call, the instance tools are scoped to containers they
   created themselves and can't be redirected at arbitrary Docker containers
   on the host.
+- **Offline docs:** the docs tools live-fetch automad.org, but a snapshot of
+  every documentation page is embedded in the binary. If a fetch fails,
+  `get_page` serves the snapshot (marked as offline) and `search_docs` still
+  ranks on real content, so the docs work air-gapped. The snapshot can lag
+  behind the live site.
+- **Live bridge auth:** the bridge speaks Automad v2's dashboard API — it logs
+  in for a session cookie, scrapes the CSRF token, and re-authenticates
+  automatically when the session expires. Credentials come only from
+  environment variables, never from tool arguments.
+- **Write guard:** destructive live-API actions require an explicit, single-use
+  confirmation token in the default `confirm-destructive` mode, so an agent
+  cannot delete or overwrite content in one unattended step.

@@ -8,6 +8,8 @@
 //   - Instance tools: create_automad_instance, list_automad_instances, get_automad_instance,
 //     set_automad_instance_state, remove_automad_instance, get_automad_instance_logs,
 //     run_automad_console_command
+//   - Live API bridge tools: automad_pages, automad_media, automad_shared,
+//     automad_config, automad_packages (require AUTOMAD_URL/USER/PASS)
 //   - Resources: automad://docs/sitemap
 //   - Prompts: explain_concept, theme_development
 //
@@ -33,6 +35,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/cabroe/automad-mcp-server-golang/internal/automad"
 	"github.com/cabroe/automad-mcp-server-golang/internal/docs"
 	"github.com/cabroe/automad-mcp-server-golang/internal/instances"
 	mcpserver "github.com/cabroe/automad-mcp-server-golang/internal/server"
@@ -107,6 +110,7 @@ func run(logger *slog.Logger) error {
 	svc := docs.NewServiceWithContext(ctx)
 	logger.Info("documentation service ready",
 		"pages", fmt.Sprintf("%d pages in sitemap", len(docs.Sitemap())),
+		"offline_corpus", fmt.Sprintf("%d pages embedded", docs.CorpusSize()),
 		"cache_ttl", docs.DefaultCacheTTL,
 	)
 
@@ -178,6 +182,20 @@ func run(logger *slog.Logger) error {
 		}()
 	}
 
+	// Initialize the live Automad v2 API bridge. Like the other services this
+	// never fails at startup: when AUTOMAD_URL/USER/PASS are absent the bridge
+	// reports disabled and its tools return a clear "not configured" message,
+	// so the docs/starter-kit/instance tools keep working with zero config.
+	automadSvc := automad.NewService()
+	if warn := automadSvc.ConfigWarning(); warn != "" {
+		logger.Warn("automad bridge configuration", "warn", warn)
+	}
+	logger.Info("automad API bridge ready",
+		"enabled", automadSvc.Enabled(),
+		"url", automadSvc.URL(),
+		"write_mode", automadSvc.WriteMode(),
+	)
+
 	// Create the MCP server.
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
@@ -193,6 +211,8 @@ Automad is a flat-file CMS and template engine. This server exposes:
 - Instance tools: create_automad_instance, list_automad_instances, get_automad_instance,
   set_automad_instance_state, remove_automad_instance, get_automad_instance_logs,
   run_automad_console_command
+- Live API bridge (requires AUTOMAD_URL/USER/PASS): automad_pages, automad_media, automad_shared,
+  automad_config, automad_packages — manage real content on a running Automad v2 site
 - Resources: automad://docs/sitemap (full documentation structure)
 - Prompts: explain_concept, theme_development
 
@@ -210,6 +230,7 @@ server created itself.`, starterkit.Owner, starterkit.Repo),
 	mcpserver.RegisterTools(s, svc)
 	mcpserver.RegisterStarterKitTools(s, skSvc)
 	mcpserver.RegisterInstanceTools(s, instSvc)
+	mcpserver.RegisterAutomadTools(s, automadSvc)
 	mcpserver.RegisterResources(s, svc)
 	mcpserver.RegisterPrompts(s, svc)
 

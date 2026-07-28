@@ -107,6 +107,9 @@ Use search_docs or list_pages to discover available URLs first.`,
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("# %s\n\n", page.Title))
 		sb.WriteString(fmt.Sprintf("**URL:** %s\n\n", page.FullURL))
+		if page.Offline {
+			sb.WriteString("> ⚠ Offline snapshot: the live site was unreachable, so this content comes from the embedded corpus and may be out of date.\n\n")
+		}
 		sb.WriteString("---\n\n")
 		sb.WriteString(page.Content)
 

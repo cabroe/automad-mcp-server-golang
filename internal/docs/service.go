@@ -100,6 +100,12 @@ func (s *Service) GetPage(ctx context.Context, url string) (*Page, error) {
 
 		rawHTML, err := s.fetcher.Fetch(s.lifecycle, url)
 		if err != nil {
+			// Live site unreachable: serve the embedded offline snapshot when
+			// one exists, so get_page keeps working air-gapped. Offline pages
+			// are not cached, so the next call retries the live site.
+			if offline := corpusPage(url); offline != nil {
+				return offline, nil
+			}
 			return nil, fmt.Errorf("fetching page %s: %w", url, err)
 		}
 
@@ -201,29 +207,30 @@ func (s *Service) Search(query string) []*SearchResult {
 
 	var results []*SearchResult
 	for _, doc := range Sitemap() {
-		cached := s.cache.Get(doc.URL)
-		if cached == nil {
-			// For pages not yet in cache, match against title/URL only.
-			score := matchScore(keywords, strings.ToLower(doc.Value), strings.ToLower(doc.URL), "")
-			if score > 0 {
-				results = append(results, &SearchResult{
-					DocPage: doc,
-					Score:   score,
-					Snippet: fmt.Sprintf("Section: %s", doc.Parent),
-				})
-			}
-			continue
+		title := doc.Value
+		content := ""
+		if cached := s.cache.Get(doc.URL); cached != nil {
+			title = cached.Title
+			content = cached.Content
+		} else if snapshot := corpusContent(doc.URL); snapshot != "" {
+			// Cache cold (e.g. offline, or not warmed yet): rank on the
+			// embedded snapshot so search stays comprehensive.
+			content = snapshot
 		}
 
-		contentLower := strings.ToLower(cached.Content)
-		score := matchScore(keywords, strings.ToLower(cached.Title), strings.ToLower(doc.URL), contentLower)
-		if score > 0 {
-			results = append(results, &SearchResult{
-				DocPage: doc,
-				Score:   score,
-				Snippet: extractSnippet(cached.Content, keywords[0]),
-			})
+		score := matchScore(keywords, strings.ToLower(title), strings.ToLower(doc.URL), strings.ToLower(content))
+		if score == 0 {
+			continue
 		}
+		snippet := fmt.Sprintf("Section: %s", doc.Parent)
+		if content != "" {
+			snippet = extractSnippet(content, keywords[0])
+		}
+		results = append(results, &SearchResult{
+			DocPage: doc,
+			Score:   score,
+			Snippet: snippet,
+		})
 	}
 
 	// Sort by score descending, preserving relative order for ties.

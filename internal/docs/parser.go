@@ -16,6 +16,9 @@ type Page struct {
 	FullURL string
 	// Content is the extracted plain-text / markdown-like content.
 	Content string
+	// Offline is true when the page was served from the embedded corpus
+	// (a snapshot) because the live site could not be reached.
+	Offline bool
 }
 
 // Parse extracts structured text content from raw Automad documentation HTML.
