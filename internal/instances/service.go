@@ -323,7 +323,8 @@ func (s *Service) Remove(ctx context.Context, name string, deleteData bool) erro
 	return nil
 }
 
-func MaxLogTail() int { return maxLogTail }
+// MaxLogTail is the maximum number of log lines returned by Logs.
+const MaxLogTail = maxLogTail
 
 // Logs returns the last `tail` lines of an instance's container logs
 // (stdout and stderr combined, stderr labeled separately if present). This
@@ -333,11 +334,14 @@ func (s *Service) Logs(ctx context.Context, name string, tail int) (string, erro
 	if _, err := s.Get(ctx, name); err != nil {
 		return "", err
 	}
-	if tail <= 0 {
+	if tail < 0 {
+		return "", fmt.Errorf("tail must not be negative")
+	}
+	if tail == 0 {
 		tail = 100
 	}
-	if tail > maxLogTail {
-		tail = maxLogTail
+	if tail > MaxLogTail {
+		return "", fmt.Errorf("tail must not exceed %d lines", MaxLogTail)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)

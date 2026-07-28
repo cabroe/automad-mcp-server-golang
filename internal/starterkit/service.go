@@ -41,6 +41,9 @@ func NewService() *Service {
 // Branch returns the git ref (branch or tag) this service reads from.
 func (s *Service) Branch() string { return s.client.Branch() }
 
+// ConfigError reports invalid Starter Kit environment configuration.
+func (s *Service) ConfigError() error { return s.client.ConfigError() }
+
 // Authenticated reports whether a GITHUB_TOKEN/GH_TOKEN was configured,
 // raising the GitHub API rate limit from 60 to 5000 requests/hour.
 func (s *Service) Authenticated() bool { return s.client.Authenticated() }
@@ -60,6 +63,9 @@ func isSupportedExtension(path string) bool {
 // repository. The second return value reports whether the bundled fallback
 // listing was used because the live GitHub API request failed.
 func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
+	if err := s.ConfigError(); err != nil {
+		return nil, false, err
+	}
 	if t := s.cache.GetTree(); t != nil {
 		return t, false, nil
 	}
@@ -120,6 +126,9 @@ func NormalizeRepositoryPath(value string) (string, error) {
 // content was used because the live GitHub API request failed; this is only
 // possible for the curated set of paths in fallbackFiles.
 func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool, error) {
+	if err := s.ConfigError(); err != nil {
+		return nil, false, err
+	}
 	path, err := NormalizeRepositoryPath(path)
 	if err != nil {
 		return nil, false, err
@@ -168,6 +177,9 @@ func (s *Service) ValidateFilePath(ctx context.Context, filePath string) (bool, 
 	if err != nil {
 		return false, err
 	}
+	if fallback {
+		return false, fmt.Errorf("GitHub is unavailable; existence of repository file %q cannot be verified against the live repository", filePath)
+	}
 	for _, entry := range tree.Entries {
 		if entry.Path == filePath && entry.IsFile() {
 			return fallback, nil
@@ -179,6 +191,9 @@ func (s *Service) ValidateFilePath(ctx context.Context, filePath string) (bool, 
 // FileURLs returns the direct raw-content URL and the human-browsable GitHub
 // URL for a file, without fetching anything.
 func (s *Service) FileURLs(filePath string) (rawURL, blobURL string, err error) {
+	if err := s.ConfigError(); err != nil {
+		return "", "", err
+	}
 	filePath, err = NormalizeRepositoryPath(filePath)
 	if err != nil {
 		return "", "", err
@@ -203,6 +218,10 @@ func (s *Service) WarmFiles(ctx context.Context) (int, error) {
 	tree, _, err := s.ListFiles(ctx)
 	if err != nil {
 		return 0, err
+	}
+
+	if tree.Truncated {
+		return 0, fmt.Errorf("GitHub returned a truncated repository tree; cache warm-up would be incomplete")
 	}
 
 	var (

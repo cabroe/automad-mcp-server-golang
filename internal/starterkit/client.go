@@ -1,6 +1,7 @@
 package starterkit
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -39,6 +40,7 @@ type Client struct {
 	httpClient *http.Client
 	token      string
 	branch     string
+	configErr  error
 
 	mu            sync.Mutex
 	rateKnown     bool
@@ -61,20 +63,23 @@ func NewClient() *Client {
 	if branch == "" {
 		branch = "master"
 	}
-	// GitHub's /blob/<ref>/<path> and raw URL formats are ambiguous when a
-	// ref contains '/'. Reject unsafe/ambiguous refs and fall back to master.
+	var configErr error
 	if strings.ContainsAny(branch, "/\\?#\x00\r\n") || strings.Contains(branch, "..") {
-		branch = "master"
+		configErr = fmt.Errorf("invalid AUTOMAD_STARTER_KIT_REF %q: refs must not contain '/', '\\', '..', '?', '#', or control characters", branch)
 	}
 	return &Client{
 		httpClient: &http.Client{Timeout: requestTimeout},
 		token:      token,
 		branch:     branch,
+		configErr:  configErr,
 	}
 }
 
 // Branch returns the git ref (branch or tag) this client reads from.
 func (c *Client) Branch() string { return c.branch }
+
+// ConfigError reports an invalid Starter Kit configuration.
+func (c *Client) ConfigError() error { return c.configErr }
 
 // Authenticated reports whether a GitHub token was configured, which is
 // useful for surfacing hints ("set GITHUB_TOKEN...") only when it would
@@ -91,7 +96,7 @@ func readLimitedJSON(r io.Reader, limit int64, dst any) error {
 	if int64(len(body)) > limit {
 		return fmt.Errorf("response exceeds maximum size of %d bytes", limit)
 	}
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err := decoder.Decode(dst); err != nil {
 		return err
 	}
@@ -111,6 +116,9 @@ func readLimitedJSON(r io.Reader, limit int64, dst any) error {
 // Contents API directory by directory), which matters a lot for staying
 // under GitHub's unauthenticated rate limit.
 func (c *Client) GetTree(ctx context.Context) (*Tree, error) {
+	if c.configErr != nil {
+		return nil, c.configErr
+	}
 	treeURL := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", apiBaseURL, Owner, Repo, url.PathEscape(c.branch))
 
 	req, err := c.newRequest(ctx, treeURL)
@@ -146,6 +154,9 @@ func (c *Client) GetTree(ctx context.Context) (*Tree, error) {
 // GetContents fetches and decodes the raw content of a single file via the
 // GitHub Contents API.
 func (c *Client) GetContents(ctx context.Context, path string) ([]byte, error) {
+	if c.configErr != nil {
+		return nil, c.configErr
+	}
 	contentsURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s",
 		apiBaseURL, Owner, Repo, escapePath(path), url.QueryEscape(c.branch))
 

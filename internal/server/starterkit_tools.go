@@ -108,18 +108,19 @@ func registerGetFileContent(s *mcp.Server, svc *starterkit.Service) {
 Supported file types: .php, .json, .md, .txt, .css, .js.
 Use list_files or search_code to discover paths first.`,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input getFileContentInput) (*mcp.CallToolResult, any, error) {
-		if strings.TrimSpace(input.Path) == "" {
-			return toolError("path must not be empty"), nil, nil
+		normalizedPath, err := starterkit.NormalizeRepositoryPath(input.Path)
+		if err != nil {
+			return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
 		}
 
-		content, usedFallback, err := svc.GetFileContent(ctx, input.Path)
+		content, usedFallback, err := svc.GetFileContent(ctx, normalizedPath)
 		if err != nil {
 			return toolError(fmt.Sprintf("Failed to fetch %q: %v\n\nUse list_files to see valid paths.", input.Path, err)), nil, nil
 		}
 
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("# %s\n\n", input.Path))
-		rawURL, blobURL, err := svc.FileURLs(input.Path)
+		sb.WriteString(fmt.Sprintf("# %s\n\n", normalizedPath))
+		rawURL, blobURL, err := svc.FileURLs(normalizedPath)
 		if err != nil {
 			return toolError(fmt.Sprintf("Invalid file path %q: %v", input.Path, err)), nil, nil
 		}
@@ -128,7 +129,7 @@ Use list_files or search_code to discover paths first.`,
 			sb.WriteString("⚠️ GitHub API unavailable — showing bundled fallback content, which may be outdated.\n\n")
 		}
 		sb.WriteString("---\n\n")
-		sb.WriteString(fenceBlock(input.Path, string(content)))
+		sb.WriteString(fenceBlock(normalizedPath, string(content)))
 
 		return toolText(sb.String()), nil, nil
 	})

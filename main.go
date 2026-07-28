@@ -81,6 +81,9 @@ func run(logger *slog.Logger) error {
 	// Initialize the Starter Kit service (GitHub API client + cache), giving
 	// access to the automadcms/automad-theme-starter-kit repository.
 	skSvc := starterkit.NewService()
+	if err := skSvc.ConfigError(); err != nil {
+		logger.Warn("starter kit configuration invalid; tools will return errors", "err", err)
+	}
 	logger.Info("starter kit service ready",
 		"repo", fmt.Sprintf("%s/%s", starterkit.Owner, starterkit.Repo),
 		"branch", skSvc.Branch(),

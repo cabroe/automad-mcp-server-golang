@@ -239,6 +239,18 @@ func matchScore(keywords []string, title, url, content string) int {
 	return score
 }
 
+func runesEqual(a, b []rune) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // extractSnippet returns a ~200-character excerpt of content around the first
 // occurrence of the given keyword.
 func extractSnippet(content, keyword string) string {
@@ -247,7 +259,7 @@ func extractSnippet(content, keyword string) string {
 	keywordRunes := []rune(strings.ToLower(keyword))
 	idx := -1
 	for i := 0; i+len(keywordRunes) <= len(lowerRunes); i++ {
-		if string(lowerRunes[i:i+len(keywordRunes)]) == string(keywordRunes) {
+		if runesEqual(lowerRunes[i:i+len(keywordRunes)], keywordRunes) {
 			idx = i
 			break
 		}

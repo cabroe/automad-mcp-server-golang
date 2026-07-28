@@ -79,6 +79,9 @@ start Automad auto-generates a dashboard user; retrieve the credentials with get
 
 		inst, err := svc.Create(ctx, input.Name, input.Port, input.Image)
 		if err != nil {
+			if existing, getErr := svc.Get(ctx, input.Name); getErr == nil {
+				return toolError(fmt.Sprintf("Instance %q was created but did not become ready: %v\n\nCurrent instance:\n%s\nUse get_automad_instance_logs to inspect initialization or remove_automad_instance to clean up.", input.Name, err, formatInstance(*existing, true))), nil, nil
+			}
 			return toolError(fmt.Sprintf("Failed to create instance %q: %v", input.Name, err)), nil, nil
 		}
 
@@ -179,8 +182,11 @@ Use this right after create_automad_instance to find the auto-generated dashboar
 		if strings.TrimSpace(input.Name) == "" {
 			return toolError("name must not be empty"), nil, nil
 		}
-		if input.Tail > instances.MaxLogTail() {
-			return toolError(fmt.Sprintf("tail must not exceed %d lines", instances.MaxLogTail())), nil, nil
+		if input.Tail < 0 {
+			return toolError("tail must not be negative"), nil, nil
+		}
+		if input.Tail > instances.MaxLogTail {
+			return toolError(fmt.Sprintf("tail must not exceed %d lines", instances.MaxLogTail)), nil, nil
 		}
 		logs, err := svc.Logs(ctx, input.Name, input.Tail)
 		if err != nil {
