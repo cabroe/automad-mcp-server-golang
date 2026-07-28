@@ -34,5 +34,8 @@ jobs:
       - name: Race detector
         run: go test -race ./... -count=1
 
-      - name: Build
-        run: go build -ldflags "-X main.version=ci-${GITHUB_SHA::8}" -o automad-mcp-server .
+      - name: Build command
+        run: go build -ldflags "-X main.version=ci-${GITHUB_SHA::8}" -o automad-mcp-server ./cmd/automad-mcp-server
+
+      - name: Verify go install layout
+        run: GOBIN="$RUNNER_TEMP/bin" go install ./cmd/automad-mcp-server

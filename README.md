@@ -63,14 +63,24 @@ Every container these tools create is labeled `managed-by=automad-mcp-server`, a
 
 - Go 1.26+
 
-### Build
+### Install with Go
+
+```bash
+go install github.com/cabroe/automad-mcp-server/cmd/automad-mcp-server@latest
+```
+
+The binary is installed as `automad-mcp-server` in `$(go env GOPATH)/bin` (or `GOBIN`, when configured). Ensure that directory is on your `PATH`.
+
+> `@latest` resolves the newest published semantic-version tag. Until the first release tag exists, install the current main branch with `@main`.
+
+### Build from source
 
 ```bash
 git clone https://github.com/cabroe/automad-mcp-server-golang
 cd automad-mcp-server-golang
 make build
 # or directly:
-go build -o automad-mcp-server .
+go build -o automad-mcp-server ./cmd/automad-mcp-server
 ```
 
 ### For AI Agents (Claude Code, Cursor Agent, etc.)
@@ -156,7 +166,7 @@ In `.cursor/mcp.json` or globally in `~/.cursor/mcp.json`:
 
 ```bash
 # Starts the interactive inspector in the browser
-npx @modelcontextprotocol/inspector go run .
+npx @modelcontextprotocol/inspector go run ./cmd/automad-mcp-server
 ```
 
 > **Note:** The server communicates using the standardized MCP protocol via stdio (not raw JSON-RPC).
@@ -166,7 +176,8 @@ npx @modelcontextprotocol/inspector go run .
 
 ```
 automad-mcp-server-golang/
-├── main.go                     # Entry point
+├── cmd/automad-mcp-server/
+│   └── main.go                 # Installable command entry point
 ├── SKILL.md                    # Documentation + examples for the Starter Kit tools
 ├── internal/
 │   ├── docs/

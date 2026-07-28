@@ -22,14 +22,22 @@ real implementation, and the instance tools to actually run and test it.
 ## Installation
 
 This skill requires a running `automad-mcp-server` (Go binary, MCP stdio
-transport). Build it once, then point any MCP-compatible client at it.
+transport). Install it with Go, then point any MCP-compatible client at it.
+
+```bash
+go install github.com/cabroe/automad-mcp-server/cmd/automad-mcp-server@latest
+```
+
+The binary is written to `$(go env GOPATH)/bin` or `GOBIN`. Until the first semantic-version release is tagged, use `@main` instead of `@latest`.
+
+To build from a clone instead:
 
 ```bash
 git clone https://github.com/cabroe/automad-mcp-server-golang
 cd automad-mcp-server-golang
 make build
 # or directly:
-go build -o automad-mcp-server .
+go build -o automad-mcp-server ./cmd/automad-mcp-server
 ```
 
 Register it with your MCP client, e.g. Claude Desktop

@@ -1,7 +1,8 @@
 # Makefile for automad-mcp-server
 
 BINARY  := automad-mcp-server
-PKG     := github.com/cabroe/automad-mcp-server
+CMD     := ./cmd/automad-mcp-server
+PKG     := github.com/cabroe/automad-mcp-server/cmd/automad-mcp-server
 VERSION ?= dev
 LDFLAGS := -X main.version=$(VERSION)
 
@@ -11,11 +12,11 @@ all: build
 
 ## build: Compile the binary
 build:
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(CMD)
 
 ## run: Run the server directly (stdio mode)
 run:
-	go run .
+	go run $(CMD)
 
 ## test: Run all tests
 test:
@@ -39,7 +40,7 @@ check:
 	go vet ./...
 	go test ./... -count=1
 	go test -race ./... -count=1
-	go build -ldflags "$(LDFLAGS)" ./...
+	go build -ldflags "$(LDFLAGS)" $(CMD)
 
 ## tidy: Tidy and verify go.mod
 tidy:
