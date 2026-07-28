@@ -1,6 +1,7 @@
 package starterkit
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -50,6 +51,11 @@ func (e *RateLimitError) Error() string {
 		e.ResetAt.Format(time.RFC3339),
 	)
 }
+
+var (
+	ErrGitHubUnavailable = errors.New("GitHub is unavailable")
+	ErrTreeTruncated     = errors.New("the GitHub repository tree is truncated")
+)
 
 // VerificationUnavailableError means the live repository could not provide a
 // complete answer about whether a file exists.

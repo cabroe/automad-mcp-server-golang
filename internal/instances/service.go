@@ -68,6 +68,11 @@ func (s *Service) targetDataDir(name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolving instances directory: %w", err)
 	}
+	if resolved, evalErr := filepath.EvalSymlinks(base); evalErr == nil {
+		base = resolved
+	} else if !errors.Is(evalErr, os.ErrNotExist) {
+		return "", fmt.Errorf("resolving instances directory symlinks: %w", evalErr)
+	}
 	target := filepath.Join(base, name)
 	rel, err := filepath.Rel(base, target)
 	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
@@ -180,14 +185,23 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 		return nil, fmt.Errorf("creating instance %q: %w", name, err)
 	}
 
-	if err := s.waitReady(ctx, name); err != nil {
-		inst, getErr := s.getUnchecked(context.Background(), name)
+	created, err := s.getUnchecked(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.waitReady(ctx, created); err != nil {
+		snapshotCtx, snapshotCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer snapshotCancel()
+		inst, getErr := s.getUnchecked(snapshotCtx, name)
 		if getErr != nil {
 			return nil, err
 		}
 		return nil, &NotReadyError{Instance: inst, Cause: err}
 	}
-	return s.getUnchecked(ctx, name)
+	if created.HostPort == 0 {
+		return nil, &NotReadyError{Instance: created, Cause: fmt.Errorf("Docker did not expose an assigned host port")}
+	}
+	return created, nil
 }
 
 // ensureContainerNameAvailable detects collisions with containers not managed
@@ -208,7 +222,7 @@ func (s *Service) ensureContainerNameAvailable(ctx context.Context, name string)
 // waitReady waits until the first-run image initialization has created the
 // Automad console. A container being "running" only means its entrypoint is
 // active; Composer may still be installing Automad into the mounted /app.
-func (s *Service) waitReady(ctx context.Context, name string) error {
+func (s *Service) waitReady(ctx context.Context, inst *Instance) error {
 	readyCtx, cancel := context.WithTimeout(ctx, instanceReadyTimeout)
 	defer cancel()
 
@@ -218,24 +232,27 @@ func (s *Service) waitReady(ctx context.Context, name string) error {
 	var lastErr error
 	for {
 		checkCtx, checkCancel := context.WithTimeout(readyCtx, defaultCommandTimeout)
-		_, _, err := s.runner.run(checkCtx, "exec", s.containerName(name), "php", "automad/console", "log:path")
+		_, _, err := s.runner.run(checkCtx, "exec", inst.ContainerID, "php", "automad/console", "log:path")
 		checkCancel()
 		if err == nil {
 			return nil
 		}
 		lastErr = err
 
-		inst, getErr := s.getUnchecked(readyCtx, name)
+		current, getErr := s.getUnchecked(readyCtx, inst.Name)
 		if getErr != nil {
-			return fmt.Errorf("checking readiness of instance %q: %w", name, getErr)
+			return fmt.Errorf("checking readiness of instance %q: %w", inst.Name, getErr)
 		}
-		if !inst.Running {
-			return fmt.Errorf("instance %q stopped before becoming ready (status: %s): %w", name, inst.Status, lastErr)
+		if current.ContainerID != inst.ContainerID {
+			return fmt.Errorf("instance %q container changed during readiness check", inst.Name)
+		}
+		if !current.Running {
+			return fmt.Errorf("instance %q stopped before becoming ready (status: %s): %w", inst.Name, current.Status, lastErr)
 		}
 
 		select {
 		case <-readyCtx.Done():
-			return fmt.Errorf("instance %q started but Automad did not become ready within %s; last probe error: %v: %w", name, instanceReadyTimeout, lastErr, readyCtx.Err())
+			return fmt.Errorf("instance %q started but Automad did not become ready within %s; last probe error: %v: %w", inst.Name, instanceReadyTimeout, lastErr, readyCtx.Err())
 		case <-ticker.C:
 		}
 	}
@@ -311,17 +328,17 @@ func (s *Service) SetState(ctx context.Context, name string, state InstanceState
 		return nil
 	}
 	if state == StateStart && inst.Running {
-		return s.waitReady(ctx, name)
+		return s.waitReady(ctx, inst)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
 	defer cancel()
 
-	if _, _, err := s.runner.run(runCtx, string(state), s.containerName(name)); err != nil {
+	if _, _, err := s.runner.run(runCtx, string(state), inst.ContainerID); err != nil {
 		return fmt.Errorf("%s instance %q: %w", state, name, err)
 	}
 	if state == StateStart || state == StateRestart {
-		if err := s.waitReady(ctx, name); err != nil {
+		if err := s.waitReady(ctx, inst); err != nil {
 			return err
 		}
 	}
@@ -341,7 +358,7 @@ func (s *Service) Remove(ctx context.Context, name string, deleteData bool) (Rem
 	if err := ValidateName(name); err != nil {
 		return result, err
 	}
-	_, err := s.Get(ctx, name)
+	inst, err := s.Get(ctx, name)
 	if err != nil {
 		var notFound *NotFoundError
 		if deleteData && errors.As(err, &notFound) {
@@ -366,7 +383,7 @@ func (s *Service) Remove(ctx context.Context, name string, deleteData bool) (Rem
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
 	defer cancel()
 
-	if _, _, err := s.runner.run(runCtx, "rm", "-f", s.containerName(name)); err != nil {
+	if _, _, err := s.runner.run(runCtx, "rm", "-f", inst.ContainerID); err != nil {
 		return result, fmt.Errorf("removing instance %q: %w", name, err)
 	}
 	result.ContainerRemoved = true
@@ -392,7 +409,8 @@ const MaxLogTail = maxLogTail
 // is also how to retrieve the dashboard credentials Automad auto-generates
 // on first start.
 func (s *Service) Logs(ctx context.Context, name string, tail int) (string, error) {
-	if _, err := s.Get(ctx, name); err != nil {
+	inst, err := s.Get(ctx, name)
+	if err != nil {
 		return "", err
 	}
 	if tail < 0 {
@@ -408,7 +426,7 @@ func (s *Service) Logs(ctx context.Context, name string, tail int) (string, erro
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
 	defer cancel()
 
-	stdout, stderr, err := s.runner.run(runCtx, "logs", "--tail", strconv.Itoa(tail), s.containerName(name))
+	stdout, stderr, err := s.runner.run(runCtx, "logs", "--tail", strconv.Itoa(tail), inst.ContainerID)
 	if err != nil {
 		return "", fmt.Errorf("fetching logs for instance %q: %w", name, err)
 	}
@@ -439,7 +457,7 @@ func (s *Service) RunConsoleCommand(ctx context.Context, name, command string) (
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
 	defer cancel()
 
-	stdout, stderr, err := s.runner.run(runCtx, "exec", s.containerName(name), "php", "automad/console", command)
+	stdout, stderr, err := s.runner.run(runCtx, "exec", inst.ContainerID, "php", "automad/console", command)
 	if err != nil {
 		return "", fmt.Errorf("running console command %q on instance %q: %w", command, name, err)
 	}

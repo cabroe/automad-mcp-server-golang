@@ -135,7 +135,8 @@ func isFallbackEligible(err error) bool {
 	}
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
-		return true
+		var nestedNetErr net.Error
+		return errors.As(urlErr.Err, &nestedNetErr)
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
@@ -241,10 +242,10 @@ func (s *Service) ValidateFilePath(ctx context.Context, filePath string) error {
 		return err
 	}
 	if fallback {
-		return &VerificationUnavailableError{Path: filePath, Cause: fmt.Errorf("GitHub is unavailable")}
+		return &VerificationUnavailableError{Path: filePath, Cause: ErrGitHubUnavailable}
 	}
 	if tree.Truncated {
-		return &VerificationUnavailableError{Path: filePath, Cause: fmt.Errorf("the GitHub repository tree is truncated")}
+		return &VerificationUnavailableError{Path: filePath, Cause: ErrTreeTruncated}
 	}
 	for _, entry := range tree.Entries {
 		if entry.Path == filePath && entry.IsFile() {
@@ -257,6 +258,9 @@ func (s *Service) ValidateFilePath(ctx context.Context, filePath string) error {
 // FileURLs returns the direct raw-content URL and the human-browsable GitHub
 // URL for a file, without fetching anything.
 func (s *Service) FileURLs(filePath string) (rawURL, blobURL string, err error) {
+	if err := s.lifecycle.Err(); err != nil {
+		return "", "", err
+	}
 	if err := s.ConfigError(); err != nil {
 		return "", "", err
 	}
@@ -281,9 +285,12 @@ func (s *Service) FileURLs(filePath string) (rawURL, blobURL string, err error) 
 // search_code results comprehensive instead of depending on which files a
 // client happens to have fetched via get_file_content so far.
 func (s *Service) WarmFiles(ctx context.Context) (int, error) {
-	tree, _, err := s.ListFiles(ctx)
+	tree, usedFallback, err := s.ListFiles(ctx)
 	if err != nil {
 		return 0, err
+	}
+	if usedFallback {
+		return 0, fmt.Errorf("cache warm-up requires the live GitHub repository tree")
 	}
 
 	if tree.Truncated {
@@ -359,9 +366,12 @@ func (s *Service) SearchCode(ctx context.Context, query string, extFilter []stri
 		return nil, nil, fmt.Errorf("query must not be empty")
 	}
 
-	tree, _, err := s.ListFiles(ctx)
+	tree, usedFallback, err := s.ListFiles(ctx)
 	if err != nil {
 		return nil, nil, err
+	}
+	if usedFallback {
+		return nil, nil, fmt.Errorf("code search requires the live GitHub repository tree")
 	}
 	if tree.Truncated {
 		return nil, nil, fmt.Errorf("GitHub returned a truncated repository tree; code search would be incomplete")
