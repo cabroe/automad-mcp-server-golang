@@ -96,18 +96,13 @@ In `.cursor/mcp.json` oder global in `~/.cursor/mcp.json`:
 ### Mit MCP Inspector testen
 
 ```bash
+# Startet den interaktiven Inspector im Browser
 npx @modelcontextprotocol/inspector go run .
 ```
 
-### Manuell testen (MCP Inspector)
+> **Hinweis:** Der Server kommuniziert über das standardisierte MCP-Protokoll via stdio (kein rohes JSON-RPC).
+> Verwende zum Testen immer den MCP Inspector oder binde ihn direkt in deinen MCP-Client (Claude, Cursor etc.) ein.
 
-```bash
-# Interaktiver Inspector im Browser
-npx @modelcontextprotocol/inspector go run .
-```
-
-> **Hinweis:** Der Server kommuniziert über das MCP-Protokoll (kein rohes JSON-RPC).
-> Verwende immer den MCP Inspector oder einen MCP-kompatiblen Client zum Testen.
 
 ## Projektstruktur
 
