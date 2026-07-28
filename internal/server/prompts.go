@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -94,7 +95,10 @@ func registerThemeDevelopmentPrompt(s *mcp.Server, svc *docs.Service) {
 			return nil, fmt.Errorf("task argument is required")
 		}
 
-		// Fetch key theme development pages.
+		// Fetch key theme development pages. These are independent network
+		// requests, so fetch them concurrently instead of one-by-one — with
+		// 4 pages at ~seconds each over HTTP, sequential fetching meant this
+		// prompt could take 4x as long as necessary in the worst case.
 		keyPages := []string{
 			"/developer-guide/building-themes/template-language",
 			"/developer-guide/building-themes/template-language/toolbox",
@@ -102,15 +106,26 @@ func registerThemeDevelopmentPrompt(s *mcp.Server, svc *docs.Service) {
 			"/developer-guide/building-themes/template-language/variables",
 		}
 
+		fetched := make([]string, len(keyPages))
+		var wg sync.WaitGroup
+		for i, url := range keyPages {
+			wg.Add(1)
+			go func(i int, url string) {
+				defer wg.Done()
+				page, err := svc.GetPage(ctx, url)
+				if err != nil || page.Content == "" {
+					return
+				}
+				fetched[i] = fmt.Sprintf("### %s\nURL: %s\n\n%s",
+					page.Title, page.FullURL, truncate(page.Content, 800))
+			}(i, url)
+		}
+		wg.Wait()
+
 		var contextParts []string
-		for _, url := range keyPages {
-			page, err := svc.GetPage(url)
-			if err != nil {
-				continue
-			}
-			if page.Content != "" {
-				contextParts = append(contextParts, fmt.Sprintf("### %s\nURL: %s\n\n%s",
-					page.Title, page.FullURL, truncate(page.Content, 800)))
+		for _, part := range fetched {
+			if part != "" {
+				contextParts = append(contextParts, part)
 			}
 		}
 

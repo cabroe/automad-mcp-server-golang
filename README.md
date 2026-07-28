@@ -46,6 +46,17 @@ make build
 go build -o automad-mcp-server .
 ```
 
+### Für KI-Agenten (Claude Code, Cursor Agent, etc.)
+
+Diesen Prompt an einen KI-Coding-Agenten mit Datei-/Shell-Zugriff geben, um den Server automatisch zu bauen und einzurichten:
+
+```
+Baue den automad-mcp-server aus diesem Repo (`make build` bzw. `go build -o automad-mcp-server .`)
+und trage ihn als MCP-Server "automad-docs" mit dem absoluten Pfad zur Binary in die MCP-Konfiguration
+meines aktuellen Tools ein (z. B. claude_desktop_config.json, .cursor/mcp.json, .mcp.json oder via
+`claude mcp add`). Zeig mir danach die verwendete Konfiguration.
+```
+
 ## Konfiguration
 
 ### Claude Desktop
@@ -143,6 +154,7 @@ make run
 - **Transport**: stdio (Standard-MCP-Transport)
 - **Cache-TTL**: 1 Stunde (konfigurierbar in `docs/service.go`)
 - **Dokumentations-Strategie**: Live-Fetch von automad.org mit In-Memory-Cache
+- **Cache-Warmup**: Beim Start lädt der Server im Hintergrund alle Sitemap-Seiten (max. 5 parallel, 2 Min. Timeout), damit `search_docs` von Anfang an über den vollen Seiteninhalt sucht statt nur über Titel/URL
 - **MCP-Version**: 2026-07-28 (via go-sdk v1.7.0)
 
 ## Lizenz

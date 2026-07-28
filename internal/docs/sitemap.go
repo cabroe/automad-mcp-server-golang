@@ -1,5 +1,7 @@
 package docs
 
+import "sync"
+
 // DocPage represents a single entry in the Automad documentation sitemap.
 type DocPage struct {
 	// Value is the display title of the page.
@@ -10,9 +12,28 @@ type DocPage struct {
 	Parent string
 }
 
+// sitemapOnce lazily builds the sitemap slice exactly once. Sitemap() is
+// called on nearly every request (Search, ListPages, FindByURL,
+// SitemapByParent, WarmCache), so rebuilding the ~100-entry literal on every
+// call was needless allocation churn; it is now built once and reused.
+var (
+	sitemapOnce sync.Once
+	sitemap     []DocPage
+)
+
 // Sitemap returns all known Automad documentation pages, derived from the
-// autocomplete index embedded in automad.org.
+// autocomplete index embedded in automad.org. The returned slice is a shared,
+// package-level cache and must not be mutated by callers.
 func Sitemap() []DocPage {
+	sitemapOnce.Do(func() {
+		sitemap = buildSitemap()
+	})
+	return sitemap
+}
+
+// buildSitemap constructs the static sitemap literal. It is only ever
+// invoked once, guarded by sitemapOnce in Sitemap().
+func buildSitemap() []DocPage {
 	return []DocPage{
 		{Value: "Automad", URL: "/", Parent: ""},
 		{Value: "Getting Started", URL: "/getting-started", Parent: "Automad"},

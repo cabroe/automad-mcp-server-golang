@@ -23,6 +23,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -67,6 +68,23 @@ func run(logger *slog.Logger) error {
 		"pages", fmt.Sprintf("%d pages in sitemap", len(docs.Sitemap())),
 		"cache_ttl", docs.DefaultCacheTTL,
 	)
+
+	// Warm the cache in the background so search_docs can rank on full page
+	// content instead of just title/URL matches from the first moment a
+	// client searches. This runs concurrently and never blocks server
+	// startup or shuts the server down on failure — it's a best-effort
+	// optimization, not a prerequisite for serving requests.
+	go func() {
+		warmCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+
+		warmed, err := svc.WarmCache(warmCtx)
+		if err != nil {
+			logger.Warn("cache warm-up finished with errors", "warmed", warmed, "err", err)
+			return
+		}
+		logger.Info("cache warm-up complete", "warmed", warmed)
+	}()
 
 	// Create the MCP server.
 	s := mcp.NewServer(&mcp.Implementation{

@@ -1,6 +1,7 @@
 package docs_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -161,7 +162,7 @@ func TestService_GetPage_NormalizesURL(t *testing.T) {
 	})
 
 	// Should normalize "getting-started" → "/getting-started".
-	page, err := svc.GetPage("getting-started")
+	page, err := svc.GetPage(context.Background(), "getting-started")
 	if err != nil {
 		t.Fatalf("GetPage without leading slash returned error: %v", err)
 	}
@@ -179,7 +180,7 @@ func TestService_GetPage_ReturnsCachedPage(t *testing.T) {
 	}
 	svc := docs.NewSeededService("/cached", page)
 
-	got, err := svc.GetPage("/cached")
+	got, err := svc.GetPage(context.Background(), "/cached")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

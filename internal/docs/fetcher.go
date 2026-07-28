@@ -1,6 +1,7 @@
 package docs
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,11 +34,14 @@ func NewFetcher() *Fetcher {
 }
 
 // Fetch retrieves the HTML for a given relative path (e.g. "/user-guide").
-// Returns the raw HTML body as a string.
-func (f *Fetcher) Fetch(path string) (string, error) {
+// Returns the raw HTML body as a string. The provided context governs
+// cancellation and deadlines for the underlying HTTP request, so a caller
+// (e.g. an MCP tool handler) can abort a slow fetch when its own request
+// context is cancelled instead of always waiting out the fixed client timeout.
+func (f *Fetcher) Fetch(ctx context.Context, path string) (string, error) {
 	url := BaseURL + path
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("creating request for %s: %w", url, err)
 	}
