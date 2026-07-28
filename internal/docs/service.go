@@ -36,6 +36,9 @@ func NewService() *Service {
 // fetching, and cache keys. Query strings and fragments are discarded.
 func NormalizeURL(value string) string {
 	value = strings.TrimSpace(value)
+	if strings.ContainsAny(value, "\\\x00\r\n") {
+		return ""
+	}
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.IsAbs() || parsed.Host != "" {
 		return ""
@@ -71,14 +74,14 @@ func (s *Service) GetPage(ctx context.Context, url string) (*Page, error) {
 		return cached, nil
 	}
 
-	// Deduplicate concurrent cache misses for the same URL. This avoids
-	// duplicate HTTP requests during warm-up or bursts of MCP calls.
-	value, err, _ := s.group.Do(url, func() (any, error) {
+	// Deduplicate concurrent cache misses while allowing each waiter to cancel
+	// independently. The shared fetch is bounded by the HTTP client timeout.
+	resultCh := s.group.DoChan(url, func() (any, error) {
 		if cached := s.cache.Get(url); cached != nil {
 			return cached, nil
 		}
 
-		rawHTML, err := s.fetcher.Fetch(ctx, url)
+		rawHTML, err := s.fetcher.Fetch(context.Background(), url)
 		if err != nil {
 			return nil, fmt.Errorf("fetching page %s: %w", url, err)
 		}
@@ -87,10 +90,15 @@ func (s *Service) GetPage(ctx context.Context, url string) (*Page, error) {
 		s.cache.Set(url, page)
 		return page, nil
 	})
-	if err != nil {
-		return nil, err
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result := <-resultCh:
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		return result.Val.(*Page), nil
 	}
-	return value.(*Page), nil
 }
 
 // warmCacheConcurrency bounds how many documentation pages WarmCache fetches

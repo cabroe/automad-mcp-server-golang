@@ -64,21 +64,26 @@ func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
 		return t, false, nil
 	}
 
-	value, err, _ := s.group.Do("tree", func() (any, error) {
+	resultCh := s.group.DoChan("tree", func() (any, error) {
 		if t := s.cache.GetTree(); t != nil {
 			return t, nil
 		}
-		t, err := s.client.GetTree(ctx)
+		t, err := s.client.GetTree(context.Background())
 		if err != nil {
 			return nil, err
 		}
 		s.cache.SetTree(t)
 		return t, nil
 	})
-	if err != nil {
-		return fallbackTree(), true, nil
+	select {
+	case <-ctx.Done():
+		return nil, false, ctx.Err()
+	case result := <-resultCh:
+		if result.Err != nil {
+			return fallbackTree(), true, nil
+		}
+		return result.Val.(*Tree), false, nil
 	}
-	return value.(*Tree), false, nil
 }
 
 // NormalizeRepositoryPath validates and canonicalizes a repository-relative
@@ -124,24 +129,29 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 		return content, false, nil
 	}
 
-	value, err, _ := s.group.Do("file:"+path, func() (any, error) {
+	resultCh := s.group.DoChan("file:"+path, func() (any, error) {
 		if content, ok := s.cache.GetFile(path); ok {
 			return content, nil
 		}
-		content, err := s.client.GetContents(ctx, path)
+		content, err := s.client.GetContents(context.Background(), path)
 		if err != nil {
 			return nil, err
 		}
 		s.cache.SetFile(path, content)
 		return content, nil
 	})
-	if err != nil {
-		if fb, ok := fallbackFiles[path]; ok {
-			return []byte(fb), true, nil
+	select {
+	case <-ctx.Done():
+		return nil, false, ctx.Err()
+	case result := <-resultCh:
+		if result.Err != nil {
+			if fb, ok := fallbackFiles[path]; ok {
+				return []byte(fb), true, nil
+			}
+			return nil, false, result.Err
 		}
-		return nil, false, err
+		return result.Val.([]byte), false, nil
 	}
-	return value.([]byte), false, nil
 }
 
 // FileURLs returns the direct raw-content URL and the human-browsable GitHub

@@ -22,6 +22,12 @@ const (
 	// requestTimeout is the maximum time allowed for a single GitHub API call.
 	requestTimeout = 20 * time.Second
 
+	// maxAPIResponseSize bounds JSON responses received from GitHub.
+	maxAPIResponseSize = 8 * 1024 * 1024
+
+	// maxDecodedFileSize bounds individual decoded source files.
+	maxDecodedFileSize = 4 * 1024 * 1024
+
 	// retryBackoff is how long the client waits before retrying a request
 	// that failed with a network error or a 5xx server error.
 	retryBackoff = 400 * time.Millisecond
@@ -97,7 +103,8 @@ func (c *Client) GetTree(ctx context.Context) (*Tree, error) {
 		Tree      []TreeEntry `json:"tree"`
 		Truncated bool        `json:"truncated"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxAPIResponseSize+1))
+	if err := decoder.Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("decoding tree response: %w", err)
 	}
 
@@ -134,7 +141,8 @@ func (c *Client) GetContents(ctx context.Context, path string) ([]byte, error) {
 		Encoding string `json:"encoding"`
 		Content  string `json:"content"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxAPIResponseSize+1))
+	if err := decoder.Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("decoding contents response for %s: %w", path, err)
 	}
 
@@ -145,9 +153,15 @@ func (c *Client) GetContents(ctx context.Context, path string) ([]byte, error) {
 		return nil, fmt.Errorf("unsupported content encoding %q for %s", parsed.Encoding, path)
 	}
 
+	if len(parsed.Content) > base64.StdEncoding.EncodedLen(maxDecodedFileSize) {
+		return nil, fmt.Errorf("file %s exceeds maximum size of %d bytes", path, maxDecodedFileSize)
+	}
 	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(parsed.Content, "\n", ""))
 	if err != nil {
 		return nil, fmt.Errorf("decoding base64 content of %s: %w", path, err)
+	}
+	if len(decoded) > maxDecodedFileSize {
+		return nil, fmt.Errorf("file %s exceeds maximum size of %d bytes", path, maxDecodedFileSize)
 	}
 	return decoded, nil
 }

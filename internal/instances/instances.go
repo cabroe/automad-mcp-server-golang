@@ -66,7 +66,7 @@ const (
 	instanceReadyTimeout = 2 * time.Minute
 
 	// instanceReadyPollInterval controls how often readiness is checked.
-	instanceReadyPollInterval = 500 * time.Millisecond
+	instanceReadyPollInterval = 1 * time.Second
 
 	// createTimeout is longer, since `docker run` may need to pull the
 	// image on first use.

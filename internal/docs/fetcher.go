@@ -61,6 +61,10 @@ func (f *Fetcher) Fetch(ctx context.Context, path string) (string, error) {
 		return "", fmt.Errorf("fetching %s: unexpected status %d", url, resp.StatusCode)
 	}
 
+	if resp.ContentLength > maxResponseSize {
+		return "", fmt.Errorf("response from %s exceeds maximum size of %d bytes", url, maxResponseSize)
+	}
+
 	limited := io.LimitReader(resp.Body, maxResponseSize+1)
 	body, err := io.ReadAll(limited)
 	if err != nil {

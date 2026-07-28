@@ -57,19 +57,21 @@ func registerListFiles(s *mcp.Server, svc *starterkit.Service) {
 Optionally scope the listing to a subdirectory via "path".
 Use this to discover which files exist before fetching them with get_file_content.`, starterkit.Owner, starterkit.Repo),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input listFilesInput) (*mcp.CallToolResult, any, error) {
-		tree, usedFallback, err := svc.ListFiles(ctx)
-		if err != nil {
-			return toolError(fmt.Sprintf("Failed to list repository files: %v", err)), nil, nil
-		}
-
-		entries := tree.Entries
 		prefix := ""
+		var err error
 		if strings.TrimSpace(input.Path) != "" {
 			prefix, err = starterkit.NormalizeRepositoryPath(input.Path)
 			if err != nil {
 				return toolError(fmt.Sprintf("Invalid repository path %q: %v", input.Path, err)), nil, nil
 			}
 		}
+
+		tree, usedFallback, err := svc.ListFiles(ctx)
+		if err != nil {
+			return toolError(fmt.Sprintf("Failed to list repository files: %v", err)), nil, nil
+		}
+
+		entries := tree.Entries
 		if prefix != "" {
 			filtered := make([]starterkit.TreeEntry, 0, len(entries))
 			for _, e := range entries {
