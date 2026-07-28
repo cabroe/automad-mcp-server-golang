@@ -1,8 +1,10 @@
 // automad-mcp-server is an MCP server that exposes the Automad CMS documentation
-// to AI assistants via the Model Context Protocol.
+// and the official Automad Theme Starter Kit repository to AI assistants via
+// the Model Context Protocol.
 //
 // It provides:
-//   - Tools: search_docs, get_page, list_pages
+//   - Docs tools: search_docs, get_page, list_pages
+//   - Starter Kit tools: list_files, get_file_content, get_template_snippet, search_code, get_file_url
 //   - Resources: automad://docs/sitemap
 //   - Prompts: explain_concept, theme_development
 //
@@ -29,6 +31,7 @@ import (
 
 	"github.com/cabroe/automad-mcp-server/internal/docs"
 	mcpserver "github.com/cabroe/automad-mcp-server/internal/server"
+	"github.com/cabroe/automad-mcp-server/internal/starterkit"
 )
 
 const (
@@ -69,21 +72,43 @@ func run(logger *slog.Logger) error {
 		"cache_ttl", docs.DefaultCacheTTL,
 	)
 
-	// Warm the cache in the background so search_docs can rank on full page
-	// content instead of just title/URL matches from the first moment a
-	// client searches. This runs concurrently and never blocks server
-	// startup or shuts the server down on failure — it's a best-effort
-	// optimization, not a prerequisite for serving requests.
+	// Initialize the Starter Kit service (GitHub API client + cache), giving
+	// access to the automadcms/automad-theme-starter-kit repository.
+	skSvc := starterkit.NewService()
+	logger.Info("starter kit service ready",
+		"repo", fmt.Sprintf("%s/%s", starterkit.Owner, starterkit.Repo),
+		"branch", skSvc.Branch(),
+		"authenticated", skSvc.Authenticated(),
+		"cache_ttl", starterkit.DefaultCacheTTL,
+	)
+
+	// Warm both caches in the background so search_docs / search_code can
+	// rank on full content instead of just title/filename matches from the
+	// first moment a client searches. This runs concurrently and never
+	// blocks server startup or shuts the server down on failure — it's a
+	// best-effort optimization, not a prerequisite for serving requests.
 	go func() {
 		warmCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 
 		warmed, err := svc.WarmCache(warmCtx)
 		if err != nil {
-			logger.Warn("cache warm-up finished with errors", "warmed", warmed, "err", err)
+			logger.Warn("docs cache warm-up finished with errors", "warmed", warmed, "err", err)
 			return
 		}
-		logger.Info("cache warm-up complete", "warmed", warmed)
+		logger.Info("docs cache warm-up complete", "warmed", warmed)
+	}()
+
+	go func() {
+		warmCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+
+		warmed, err := skSvc.WarmFiles(warmCtx)
+		if err != nil {
+			logger.Warn("starter kit cache warm-up finished with errors", "warmed", warmed, "err", err)
+			return
+		}
+		logger.Info("starter kit cache warm-up complete", "warmed", warmed)
 	}()
 
 	// Create the MCP server.
@@ -91,19 +116,24 @@ func run(logger *slog.Logger) error {
 		Name:    serverName,
 		Version: serverVersion,
 	}, &mcp.ServerOptions{
-		Instructions: `This MCP server provides access to the official Automad CMS documentation (https://automad.org).
+		Instructions: fmt.Sprintf(`This MCP server provides access to the official Automad CMS documentation (https://automad.org)
+and the official Automad Theme Starter Kit repository (https://github.com/%s/%s).
 
-Automad is a flat-file CMS and template engine. This server exposes its documentation through:
-- Tools: search_docs, get_page, list_pages
+Automad is a flat-file CMS and template engine. This server exposes:
+- Docs tools: search_docs, get_page, list_pages
+- Starter Kit tools: list_files, get_file_content, get_template_snippet, search_code, get_file_url
 - Resources: automad://docs/sitemap (full documentation structure)
 - Prompts: explain_concept, theme_development
 
-Use search_docs to find relevant pages, then get_page to read the full content.`,
+Use search_docs to find relevant documentation pages, then get_page to read the full content.
+Use the Starter Kit as the source of truth for theme development: list_files or search_code to
+discover real template/component files, get_file_content or get_template_snippet to read them.`, starterkit.Owner, starterkit.Repo),
 		Logger: logger,
 	})
 
 	// Register all MCP features.
 	mcpserver.RegisterTools(s, svc)
+	mcpserver.RegisterStarterKitTools(s, skSvc)
 	mcpserver.RegisterResources(s, svc)
 	mcpserver.RegisterPrompts(s, svc)
 
