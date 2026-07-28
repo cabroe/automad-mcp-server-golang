@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cabroe/automad-mcp-server/internal/docs"
+	"github.com/cabroe/automad-mcp-server-golang/internal/docs"
 )
 
 func TestService_ListPages_All(t *testing.T) {

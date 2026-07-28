@@ -36,6 +36,13 @@ func NewService() *Service {
 		baseDir = filepath.Join(home, ".automad-mcp-server", "instances")
 	}
 
+	baseDir, err := canonicalBaseDir(baseDir)
+	if err != nil {
+		// Preserve a deterministic path and let later filesystem operations
+		// return their concrete error instead of silently switching roots.
+		baseDir, _ = filepath.Abs(baseDir)
+	}
+
 	image := os.Getenv("AUTOMAD_DOCKER_IMAGE")
 	if image == "" {
 		image = DefaultImage
@@ -63,16 +70,19 @@ func (s *Service) EnsureAvailable(ctx context.Context) error {
 	return s.runner.EnsureAvailable(ctx)
 }
 
-func (s *Service) targetDataDir(name string) (string, error) {
-	base, err := filepath.Abs(s.baseDir)
+func canonicalBaseDir(base string) (string, error) {
+	absolute, err := filepath.Abs(base)
 	if err != nil {
-		return "", fmt.Errorf("resolving instances directory: %w", err)
+		return "", err
 	}
-	if resolved, evalErr := filepath.EvalSymlinks(base); evalErr == nil {
-		base = resolved
-	} else if !errors.Is(evalErr, os.ErrNotExist) {
-		return "", fmt.Errorf("resolving instances directory symlinks: %w", evalErr)
+	if err := os.MkdirAll(absolute, 0o755); err != nil {
+		return "", err
 	}
+	return filepath.EvalSymlinks(absolute)
+}
+
+func (s *Service) targetDataDir(name string) (string, error) {
+	base := s.baseDir
 	target := filepath.Join(base, name)
 	rel, err := filepath.Rel(base, target)
 	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
@@ -150,8 +160,8 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 	if image == "" {
 		image = s.image
 	}
-	if image != DefaultImage && image != s.image {
-		return nil, fmt.Errorf("unsupported image %q: instance readiness is guaranteed only for configured image %q", image, s.image)
+	if image != s.image {
+		return nil, fmt.Errorf("unsupported image %q: only the configured Automad v2-compatible image %q is allowed", image, s.image)
 	}
 
 	dir := s.dataDir(name)

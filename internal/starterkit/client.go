@@ -18,7 +18,7 @@ import (
 
 const (
 	// userAgent identifies this MCP server in GitHub API requests.
-	userAgent = "automad-mcp-server/1.0 (github.com/cabroe/automad-mcp-server)"
+	userAgent = "automad-mcp-server/1.0 (github.com/cabroe/automad-mcp-server-golang)"
 
 	// requestTimeout is the maximum time allowed for a single GitHub API call.
 	requestTimeout = 20 * time.Second

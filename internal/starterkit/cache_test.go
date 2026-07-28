@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cabroe/automad-mcp-server/internal/starterkit"
+	"github.com/cabroe/automad-mcp-server-golang/internal/starterkit"
 )
 
 func TestCache_TreeMissByDefault(t *testing.T) {

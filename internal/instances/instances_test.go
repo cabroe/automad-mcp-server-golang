@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cabroe/automad-mcp-server/internal/instances"
+	"github.com/cabroe/automad-mcp-server-golang/internal/instances"
 )
 
 func TestValidateName_Valid(t *testing.T) {

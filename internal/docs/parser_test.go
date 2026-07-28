@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cabroe/automad-mcp-server/internal/docs"
+	"github.com/cabroe/automad-mcp-server-golang/internal/docs"
 )
 
 // htmlWithMain wraps content in a minimal Automad-like HTML page.

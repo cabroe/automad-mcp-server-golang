@@ -8,7 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cabroe/automad-mcp-server/internal/docs"
+	"github.com/cabroe/automad-mcp-server-golang/internal/docs"
 )
 
 // RegisterPrompts adds all Automad documentation prompts to the MCP server.

@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cabroe/automad-mcp-server/internal/docs"
+	"github.com/cabroe/automad-mcp-server-golang/internal/docs"
 )
 
 // searchDocsInput is the input schema for the search_docs tool.

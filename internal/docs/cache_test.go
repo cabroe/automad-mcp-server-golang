@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cabroe/automad-mcp-server/internal/docs"
+	"github.com/cabroe/automad-mcp-server-golang/internal/docs"
 )
 
 func TestNormalizeURL(t *testing.T) {

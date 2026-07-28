@@ -1,4 +1,4 @@
-module github.com/cabroe/automad-mcp-server
+module github.com/cabroe/automad-mcp-server-golang
 
 go 1.26.1
 

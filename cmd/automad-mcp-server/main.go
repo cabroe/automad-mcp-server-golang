@@ -26,24 +26,44 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cabroe/automad-mcp-server/internal/docs"
-	"github.com/cabroe/automad-mcp-server/internal/instances"
-	mcpserver "github.com/cabroe/automad-mcp-server/internal/server"
-	"github.com/cabroe/automad-mcp-server/internal/starterkit"
+	"github.com/cabroe/automad-mcp-server-golang/internal/docs"
+	"github.com/cabroe/automad-mcp-server-golang/internal/instances"
+	mcpserver "github.com/cabroe/automad-mcp-server-golang/internal/server"
+	"github.com/cabroe/automad-mcp-server-golang/internal/starterkit"
 )
 
-const (
-	serverName = "automad-docs"
-	// version is overridden for release builds with:
-	// go build -ldflags "-X main.version=<version>".
-	version = "dev"
-)
+const serverName = "automad-docs"
+
+var version = "dev"
+
+func effectiveVersion() string {
+	if version != "dev" {
+		return version
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return version
+	}
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == "vcs.revision" && setting.Value != "" {
+			if len(setting.Value) > 12 {
+				return setting.Value[:12]
+			}
+			return setting.Value
+		}
+	}
+	return version
+}
 
 func main() {
 	// Use stderr for logs so as not to pollute the MCP stdio protocol on stdout.
@@ -65,9 +85,10 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	serverVersion := effectiveVersion()
 	logger.Info("starting Automad MCP server",
 		"name", serverName,
-		"version", version,
+		"version", serverVersion,
 		"transport", "stdio",
 	)
 
@@ -144,7 +165,7 @@ func run(logger *slog.Logger) error {
 	// Create the MCP server.
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
-		Version: version,
+		Version: serverVersion,
 	}, &mcp.ServerOptions{
 		Instructions: fmt.Sprintf(`This MCP server provides access to the official Automad CMS documentation (https://automad.org),
 the official Automad Theme Starter Kit repository (https://github.com/%s/%s), and the ability to

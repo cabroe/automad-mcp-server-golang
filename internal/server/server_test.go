@@ -8,8 +8,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cabroe/automad-mcp-server/internal/docs"
-	mcpserver "github.com/cabroe/automad-mcp-server/internal/server"
+	"github.com/cabroe/automad-mcp-server-golang/internal/docs"
+	mcpserver "github.com/cabroe/automad-mcp-server-golang/internal/server"
 )
 
 // newTestServer creates a fully wired MCP server with a pre-seeded docs service

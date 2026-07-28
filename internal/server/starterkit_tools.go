@@ -12,7 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cabroe/automad-mcp-server/internal/starterkit"
+	"github.com/cabroe/automad-mcp-server-golang/internal/starterkit"
 )
 
 // listFilesInput is the input schema for the list_files tool.

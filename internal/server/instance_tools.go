@@ -13,7 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cabroe/automad-mcp-server/internal/instances"
+	"github.com/cabroe/automad-mcp-server-golang/internal/instances"
 )
 
 // createInstanceInput is the input schema for the create_automad_instance tool.

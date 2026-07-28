@@ -14,7 +14,7 @@ const (
 	BaseURL = "https://automad.org"
 
 	// userAgent identifies this MCP server in HTTP requests.
-	userAgent = "automad-mcp-server/1.0 (github.com/cabroe/automad-mcp-server)"
+	userAgent = "automad-mcp-server/1.0 (github.com/cabroe/automad-mcp-server-golang)"
 
 	// fetchTimeout is the maximum time allowed for a single HTTP fetch.
 	fetchTimeout = 15 * time.Second

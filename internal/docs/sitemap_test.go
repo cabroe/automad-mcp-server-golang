@@ -3,7 +3,7 @@ package docs_test
 import (
 	"testing"
 
-	"github.com/cabroe/automad-mcp-server/internal/docs"
+	"github.com/cabroe/automad-mcp-server-golang/internal/docs"
 )
 
 func TestSitemap_NotEmpty(t *testing.T) {

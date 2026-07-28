@@ -2,7 +2,6 @@
 
 BINARY  := automad-mcp-server
 CMD     := ./cmd/automad-mcp-server
-PKG     := github.com/cabroe/automad-mcp-server/cmd/automad-mcp-server
 VERSION ?= dev
 LDFLAGS := -X main.version=$(VERSION)
 

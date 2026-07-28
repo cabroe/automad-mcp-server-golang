@@ -66,7 +66,7 @@ Every container these tools create is labeled `managed-by=automad-mcp-server`, a
 ### Install with Go
 
 ```bash
-go install github.com/cabroe/automad-mcp-server/cmd/automad-mcp-server@latest
+go install github.com/cabroe/automad-mcp-server-golang/cmd/automad-mcp-server@latest
 ```
 
 The binary is installed as `automad-mcp-server` in `$(go env GOPATH)/bin` (or `GOBIN`, when configured). Ensure that directory is on your `PATH`.
@@ -125,7 +125,7 @@ The instance tools work out of the box (Docker required) but can be configured v
 | Variable | Default | Purpose |
 |---|---|---|
 | `AUTOMAD_INSTANCES_DIR` | `~/.automad-mcp-server/instances` | Base directory for instance data (each instance gets its own subdirectory) |
-| `AUTOMAD_DOCKER_IMAGE` | `automad/automad:v2` | Default image for new instances |
+| `AUTOMAD_DOCKER_IMAGE` | `automad/automad:v2` | Automad v2-compatible image used for new instances; per-call overrides must match this value |
 | `AUTOMAD_STARTER_KIT_REF` | `master` | Git branch or tag used by the Starter Kit tools |
 
 The server shells out to the `docker` CLI, so it also honors standard Docker environment variables like `DOCKER_HOST`/`DOCKER_CONTEXT` if you want to point it at a remote Docker daemon.
@@ -198,7 +198,7 @@ automad-mcp-server-golang/
 │   ├── instances/
 │   │   ├── docker.go           # docker CLI wrapper (os/exec, no shell)
 │   │   ├── parse.go            # Parses `docker ps` output into Instance values
-│   │   ├── validate.go         # Name/console-command validation, free-port lookup
+│   │   ├── validate.go         # Name and console-command validation
 │   │   ├── errors.go           # NotFoundError, AlreadyExistsError
 │   │   ├── service.go          # Coordinator: Create, List, Get, SetState, Remove, Logs, RunConsoleCommand
 │   │   └── types.go            # Instance
