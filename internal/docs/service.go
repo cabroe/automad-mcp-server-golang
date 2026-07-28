@@ -3,6 +3,8 @@ package docs
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -34,16 +36,22 @@ func NewService() *Service {
 // fetching, and cache keys. Query strings and fragments are discarded.
 func NormalizeURL(value string) string {
 	value = strings.TrimSpace(value)
-	if i := strings.IndexAny(value, "?#"); i >= 0 {
-		value = value[:i]
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" {
+		return ""
 	}
+	value = parsed.Path
 	if value == "" {
 		return "/"
 	}
 	if !strings.HasPrefix(value, "/") {
 		value = "/" + value
 	}
-	return value
+	clean := path.Clean(value)
+	if clean == "." {
+		return "/"
+	}
+	return clean
 }
 
 // GetPage fetches and parses a documentation page at the given relative URL.
@@ -54,6 +62,9 @@ func NormalizeURL(value string) string {
 // instead of blocking until the fixed fetch timeout elapses.
 func (s *Service) GetPage(ctx context.Context, url string) (*Page, error) {
 	url = NormalizeURL(url)
+	if url == "" {
+		return nil, fmt.Errorf("documentation URL must be a relative path")
+	}
 
 	// Check cache first.
 	if cached := s.cache.Get(url); cached != nil {
@@ -223,14 +234,19 @@ func matchScore(keywords []string, title, url, content string) int {
 // extractSnippet returns a ~200-character excerpt of content around the first
 // occurrence of the given keyword.
 func extractSnippet(content, keyword string) string {
-	lower := strings.ToLower(content)
-	keyword = strings.ToLower(keyword)
-
-	idx := strings.Index(lower, keyword)
+	runes := []rune(content)
+	lowerRunes := []rune(strings.ToLower(content))
+	keywordRunes := []rune(strings.ToLower(keyword))
+	idx := -1
+	for i := 0; i+len(keywordRunes) <= len(lowerRunes); i++ {
+		if string(lowerRunes[i:i+len(keywordRunes)]) == string(keywordRunes) {
+			idx = i
+			break
+		}
+	}
 	if idx < 0 {
-		// No match in content; return the beginning.
-		if len(content) > 200 {
-			return content[:200] + "…"
+		if len(runes) > 200 {
+			return string(runes[:200]) + "…"
 		}
 		return content
 	}
@@ -239,16 +255,16 @@ func extractSnippet(content, keyword string) string {
 	if start < 0 {
 		start = 0
 	}
-	end := idx + len(keyword) + 120
-	if end > len(content) {
-		end = len(content)
+	end := idx + len(keywordRunes) + 120
+	if end > len(runes) {
+		end = len(runes)
 	}
 
-	snippet := content[start:end]
+	snippet := string(runes[start:end])
 	if start > 0 {
 		snippet = "…" + snippet
 	}
-	if end < len(content) {
+	if end < len(runes) {
 		snippet += "…"
 	}
 	return strings.TrimSpace(snippet)

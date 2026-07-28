@@ -91,6 +91,9 @@ Use search_docs or list_pages to discover available URLs first.`,
 		// can tell the caller whether the URL was simply unrecognized (most
 		// likely cause of a 404) versus a transient network/parse issue.
 		url := docs.NormalizeURL(input.URL)
+		if url == "" {
+			return toolError("url must be a relative Automad documentation path, not an absolute URL"), nil, nil
+		}
 		known := docs.FindByURL(url)
 
 		page, err := svc.GetPage(ctx, url)

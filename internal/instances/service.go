@@ -1,7 +1,6 @@
 package instances
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -124,7 +123,7 @@ func (s *Service) Create(ctx context.Context, name string, port int, image strin
 		"--name", s.containerName(name),
 		"--label", ManagedByLabel,
 		"--label", nameLabelKey + "=" + name,
-		"-p", fmt.Sprintf("%d:%s", port, containerPort),
+		"-p", fmt.Sprintf("127.0.0.1:%d:%s", port, containerPort),
 		"-v", dir + ":/app",
 		image,
 	}
@@ -173,17 +172,27 @@ func (s *Service) waitReady(ctx context.Context, name string) error {
 	ticker := time.NewTicker(instanceReadyPollInterval)
 	defer ticker.Stop()
 
+	var lastErr error
 	for {
 		checkCtx, checkCancel := context.WithTimeout(readyCtx, defaultCommandTimeout)
-		stdout, _, err := s.runner.run(checkCtx, "exec", s.containerName(name), "php", "automad/console", "cache:clear")
+		_, _, err := s.runner.run(checkCtx, "exec", s.containerName(name), "php", "automad/console", "log:path")
 		checkCancel()
-		if err == nil && !bytes.Contains([]byte(stdout), []byte("does not exist")) {
+		if err == nil {
 			return nil
+		}
+		lastErr = err
+
+		inst, getErr := s.Get(readyCtx, name)
+		if getErr != nil {
+			return fmt.Errorf("checking readiness of instance %q: %w", name, getErr)
+		}
+		if !inst.Running {
+			return fmt.Errorf("instance %q stopped before becoming ready (status: %s): %w", name, inst.Status, lastErr)
 		}
 
 		select {
 		case <-readyCtx.Done():
-			return fmt.Errorf("instance %q started but Automad did not become ready within %s; inspect get_automad_instance_logs and retry when initialization completes: %w", name, instanceReadyTimeout, readyCtx.Err())
+			return fmt.Errorf("instance %q started but Automad did not become ready within %s; last probe error: %v: %w", name, instanceReadyTimeout, lastErr, readyCtx.Err())
 		case <-ticker.C:
 		}
 	}
@@ -322,6 +331,9 @@ func (s *Service) Logs(ctx context.Context, name string, tail int) (string, erro
 	}
 	if tail <= 0 {
 		tail = 100
+	}
+	if tail > maxLogTail {
+		tail = maxLogTail
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, defaultCommandTimeout)

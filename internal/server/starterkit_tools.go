@@ -63,7 +63,13 @@ Use this to discover which files exist before fetching them with get_file_conten
 		}
 
 		entries := tree.Entries
-		prefix := strings.Trim(input.Path, "/")
+		prefix := ""
+		if strings.TrimSpace(input.Path) != "" {
+			prefix, err = starterkit.NormalizeRepositoryPath(input.Path)
+			if err != nil {
+				return toolError(fmt.Sprintf("Invalid repository path %q: %v", input.Path, err)), nil, nil
+			}
+		}
 		if prefix != "" {
 			filtered := make([]starterkit.TreeEntry, 0, len(entries))
 			for _, e := range entries {
@@ -204,7 +210,8 @@ recent snapshot of the repository rather than always the very latest commit.`,
 				sb.WriteString(fmt.Sprintf("\n…and %d more matches. Narrow your query or extensions.\n", len(matches)-limit))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("**%s:%d**\n```\n%s\n```\n\n", m.Path, m.Line, m.Excerpt))
+			block := fenceBlock(m.Path, m.Excerpt)
+			sb.WriteString(fmt.Sprintf("**%s:%d**\n%s\n", m.Path, m.Line, block))
 		}
 		if len(uncached) > 0 {
 			sb.WriteString(fmt.Sprintf("\nNote: %d file(s) were skipped because they aren't cached yet.\n", len(uncached)))

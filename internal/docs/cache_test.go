@@ -7,6 +7,20 @@ import (
 	"github.com/cabroe/automad-mcp-server/internal/docs"
 )
 
+func TestNormalizeURL(t *testing.T) {
+	cases := map[string]string{
+		"system/caching":           "/system/caching",
+		"/system/caching?x=1#part": "/system/caching",
+		"/system/../user-guide":    "/user-guide",
+		"https://example.com/a":    "",
+	}
+	for input, want := range cases {
+		if got := docs.NormalizeURL(input); got != want {
+			t.Errorf("NormalizeURL(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestCache_GetMiss(t *testing.T) {
 	c := docs.NewCache(time.Hour)
 	got := c.Get("/nonexistent")

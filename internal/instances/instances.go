@@ -58,6 +58,9 @@ const (
 	// defaultCommandTimeout bounds most Docker CLI calls (start/stop/logs/etc).
 	defaultCommandTimeout = 20 * time.Second
 
+	// maxLogTail prevents unbounded Docker output and oversized MCP responses.
+	maxLogTail = 5000
+
 	// instanceReadyTimeout bounds the wait for Automad's first-run Composer
 	// installation and a successful console readiness probe.
 	instanceReadyTimeout = 2 * time.Minute

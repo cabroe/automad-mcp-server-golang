@@ -81,9 +81,9 @@ func (s *Service) ListFiles(ctx context.Context) (*Tree, bool, error) {
 	return value.(*Tree), false, nil
 }
 
-// normalizeRepositoryPath validates and canonicalizes a repository-relative
+// NormalizeRepositoryPath validates and canonicalizes a repository-relative
 // path. It rejects traversal, URL-like input, backslashes, and control bytes.
-func normalizeRepositoryPath(value string) (string, error) {
+func NormalizeRepositoryPath(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", fmt.Errorf("path must not be empty")
@@ -112,7 +112,7 @@ func normalizeRepositoryPath(value string) (string, error) {
 // content was used because the live GitHub API request failed; this is only
 // possible for the curated set of paths in fallbackFiles.
 func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool, error) {
-	path, err := normalizeRepositoryPath(path)
+	path, err := NormalizeRepositoryPath(path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -147,7 +147,7 @@ func (s *Service) GetFileContent(ctx context.Context, path string) ([]byte, bool
 // FileURLs returns the direct raw-content URL and the human-browsable GitHub
 // URL for a file, without fetching anything.
 func (s *Service) FileURLs(filePath string) (rawURL, blobURL string, err error) {
-	filePath, err = normalizeRepositoryPath(filePath)
+	filePath, err = NormalizeRepositoryPath(filePath)
 	if err != nil {
 		return "", "", err
 	}

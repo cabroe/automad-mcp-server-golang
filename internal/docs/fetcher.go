@@ -17,6 +17,9 @@ const (
 
 	// fetchTimeout is the maximum time allowed for a single HTTP fetch.
 	fetchTimeout = 15 * time.Second
+
+	// maxResponseSize bounds documentation HTML retained in memory.
+	maxResponseSize = 5 * 1024 * 1024
 )
 
 // Fetcher fetches raw HTML from automad.org with a shared HTTP client.
@@ -58,9 +61,13 @@ func (f *Fetcher) Fetch(ctx context.Context, path string) (string, error) {
 		return "", fmt.Errorf("fetching %s: unexpected status %d", url, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	limited := io.LimitReader(resp.Body, maxResponseSize+1)
+	body, err := io.ReadAll(limited)
 	if err != nil {
 		return "", fmt.Errorf("reading body of %s: %w", url, err)
+	}
+	if len(body) > maxResponseSize {
+		return "", fmt.Errorf("response from %s exceeds maximum size of %d bytes", url, maxResponseSize)
 	}
 
 	return string(body), nil
