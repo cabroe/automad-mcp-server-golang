@@ -114,19 +114,43 @@ func TestService_SearchCode_FindsMatchesInCachedFiles(t *testing.T) {
 		"components/content.php": []byte("<h1>@{ title }</h1>\n"),
 	})
 
-	matches, uncached, err := svc.SearchCode(context.Background(), "<@", nil)
+	res, err := svc.SearchCode(context.Background(), "<@", nil)
 	if err != nil {
 		t.Fatalf("SearchCode: %v", err)
 	}
-	if len(matches) != 1 || matches[0].Path != "components/page.php" {
-		t.Fatalf("expected 1 match in components/page.php, got %+v", matches)
+	if len(res.Matches) != 1 || res.Matches[0].Path != "components/page.php" {
+		t.Fatalf("expected 1 match in components/page.php, got %+v", res.Matches)
 	}
 
 	// theme.json and default.php are in the tree but not seeded into the
 	// file cache, so they should be reported as uncached rather than silently
 	// fetched over the network.
-	if len(uncached) == 0 {
+	if len(res.Uncached) == 0 {
 		t.Error("expected some uncached files to be reported")
+	}
+	if res.Searched != 2 {
+		t.Errorf("expected the 2 seeded files to be searched, got %d", res.Searched)
+	}
+}
+
+// TestService_SearchCode_ReportsNothingSearchedOnColdCache pins the distinction
+// the tool output depends on: with an empty cache no file is examined, so a
+// caller must be able to tell that apart from a genuine "no matches".
+func TestService_SearchCode_ReportsNothingSearchedOnColdCache(t *testing.T) {
+	svc := starterkit.NewSeededService(seededTree(), nil)
+
+	res, err := svc.SearchCode(context.Background(), "<@", nil)
+	if err != nil {
+		t.Fatalf("SearchCode: %v", err)
+	}
+	if res.Searched != 0 {
+		t.Errorf("expected no files searched with a cold cache, got %d", res.Searched)
+	}
+	if len(res.Uncached) == 0 {
+		t.Error("expected every supported file to be reported as uncached")
+	}
+	if len(res.Matches) != 0 {
+		t.Errorf("expected no matches with a cold cache, got %+v", res.Matches)
 	}
 }
 
@@ -135,18 +159,18 @@ func TestService_SearchCode_RespectsExtensionFilter(t *testing.T) {
 		"components/page.php": []byte("@{ title }"),
 	})
 
-	matches, _, err := svc.SearchCode(context.Background(), "title", []string{".json"})
+	res, err := svc.SearchCode(context.Background(), "title", []string{".json"})
 	if err != nil {
 		t.Fatalf("SearchCode: %v", err)
 	}
-	if len(matches) != 0 {
-		t.Errorf("expected no matches when filtering to .json only, got %+v", matches)
+	if len(res.Matches) != 0 {
+		t.Errorf("expected no matches when filtering to .json only, got %+v", res.Matches)
 	}
 }
 
 func TestService_SearchCode_EmptyQuery(t *testing.T) {
 	svc := starterkit.NewSeededService(seededTree(), nil)
-	if _, _, err := svc.SearchCode(context.Background(), "  ", nil); err == nil {
+	if _, err := svc.SearchCode(context.Background(), "  ", nil); err == nil {
 		t.Error("expected an error for an empty query")
 	}
 }

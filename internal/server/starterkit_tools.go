@@ -195,33 +195,43 @@ recent snapshot of the repository rather than always the very latest commit.`,
 			return toolError("query must not be empty"), nil, nil
 		}
 
-		matches, uncached, err := svc.SearchCode(ctx, input.Query, input.Extensions)
+		res, err := svc.SearchCode(ctx, input.Query, input.Extensions)
 		if err != nil {
 			return toolError(fmt.Sprintf("search_code failed: %v", err)), nil, nil
 		}
 
-		if len(matches) == 0 {
-			msg := fmt.Sprintf("No matches for %q.", input.Query)
-			if len(uncached) > 0 {
-				msg += fmt.Sprintf("\n\nNote: %d file(s) aren't cached yet and were skipped. Call get_file_content on them directly, or retry shortly while the background cache warm-up completes.", len(uncached))
+		// Searched == 0 means the warm-up has not cached anything yet. Reporting
+		// "no matches" there would state a result the search never established,
+		// and callers act on that as if the symbol did not exist.
+		if res.Searched == 0 && len(res.Uncached) > 0 {
+			return toolText(fmt.Sprintf(
+				"Search index not ready: none of the %d supported file(s) are cached yet, so nothing was searched for %q. "+
+					"Retry in a few seconds while the background warm-up completes, or read a specific file with get_file_content.",
+				len(res.Uncached), input.Query)), nil, nil
+		}
+
+		if len(res.Matches) == 0 {
+			msg := fmt.Sprintf("No matches for %q in %d searched file(s).", input.Query, res.Searched)
+			if len(res.Uncached) > 0 {
+				msg += fmt.Sprintf("\n\nNote: %d further file(s) aren't cached yet and were skipped, so this result is incomplete. Call get_file_content on them directly, or retry shortly while the background cache warm-up completes.", len(res.Uncached))
 			}
 			return toolText(msg), nil, nil
 		}
 
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Found %d match(es) for %q:\n\n", len(matches), input.Query))
+		sb.WriteString(fmt.Sprintf("Found %d match(es) for %q:\n\n", len(res.Matches), input.Query))
 
 		const limit = 25
-		for i, m := range matches {
+		for i, m := range res.Matches {
 			if i >= limit {
-				sb.WriteString(fmt.Sprintf("\n…and %d more matches. Narrow your query or extensions.\n", len(matches)-limit))
+				sb.WriteString(fmt.Sprintf("\n…and %d more matches. Narrow your query or extensions.\n", len(res.Matches)-limit))
 				break
 			}
 			block := fenceBlock(m.Path, m.Excerpt)
 			sb.WriteString(fmt.Sprintf("**%s:%d**\n%s\n", m.Path, m.Line, block))
 		}
-		if len(uncached) > 0 {
-			sb.WriteString(fmt.Sprintf("\nNote: %d file(s) were skipped because they aren't cached yet.\n", len(uncached)))
+		if len(res.Uncached) > 0 {
+			sb.WriteString(fmt.Sprintf("\nNote: %d file(s) were skipped because they aren't cached yet, so this result may be incomplete.\n", len(res.Uncached)))
 		}
 
 		return toolText(sb.String()), nil, nil
