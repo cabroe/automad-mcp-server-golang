@@ -15,7 +15,8 @@
 //
 // Usage (stdio transport, the default for MCP):
 //
-//	./automad-mcp-server
+//	./automad-mcp-server            # run the server
+//	./automad-mcp-server --version  # print the version and exit
 //
 // See README.md for integration instructions.
 package main
@@ -23,11 +24,13 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -42,9 +45,55 @@ import (
 	"github.com/cabroe/automad-mcp-server-golang/internal/starterkit"
 )
 
-const serverName = "automad-docs"
+const (
+	// serverName is the MCP implementation name reported to clients.
+	serverName = "automad-docs"
+	// commandName is the binary's name, used in CLI output.
+	commandName = "automad-mcp-server"
+)
 
 var version = "dev"
+
+// versionLine is the single line printed by --version. It carries the platform
+// and Go version too, so a bug report pasted from it identifies the build:
+//
+//	automad-mcp-server 0.1.1 (darwin/arm64, go1.24.4)
+func versionLine() string {
+	return fmt.Sprintf("%s %s (%s/%s, %s)",
+		commandName, effectiveVersion(), runtime.GOOS, runtime.GOARCH, runtime.Version())
+}
+
+// parseFlags handles the command line. It returns the process exit code and
+// whether main should stop before starting the server, so that --version and
+// -h answer on stdout/stderr instead of booting the stdio transport.
+func parseFlags(args []string, out, errOut io.Writer) (code int, stop bool) {
+	fs := flag.NewFlagSet(commandName, flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	fs.Usage = func() {
+		fmt.Fprintf(errOut, "Usage: %s [flags]\n\n"+
+			"Runs the Automad MCP server on the stdio transport.\n"+
+			"Configuration is read from the environment; see README.md.\n\nFlags:\n", commandName)
+		fs.PrintDefaults()
+	}
+	showVersion := fs.Bool("version", false, "print the version and exit")
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0, true
+		}
+		return 2, true
+	}
+	if *showVersion {
+		fmt.Fprintln(out, versionLine())
+		return 0, true
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(errOut, "%s: unexpected argument %q\n", commandName, fs.Arg(0))
+		fs.Usage()
+		return 2, true
+	}
+	return 0, false
+}
 
 func effectiveVersion() string {
 	if version != "dev" {
@@ -80,6 +129,10 @@ func effectiveVersion() string {
 }
 
 func main() {
+	if code, stop := parseFlags(os.Args[1:], os.Stdout, os.Stderr); stop {
+		os.Exit(code)
+	}
+
 	// Use stderr for logs so as not to pollute the MCP stdio protocol on stdout.
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
