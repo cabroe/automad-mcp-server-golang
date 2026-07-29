@@ -9,7 +9,7 @@ import (
 
 // htmlWithMain wraps content in a minimal Automad-like HTML page.
 func htmlWithMain(title, body string) string {
-	return `<!DOCTYPE html><html><head><title>` + title + ` / Automad</title></head>` +
+	return `<!DOCTYPE html><html><head><title>Automad / ` + title + `</title></head>` +
 		`<body><main class="docs-content">` + body + `</main></body></html>`
 }
 
@@ -105,12 +105,31 @@ func TestParse_EmptyHTML(t *testing.T) {
 	}
 }
 
-func TestParse_TitleStripsAutomadSuffix(t *testing.T) {
-	raw := `<html><head><title>User Guide / Automad</title></head><body></body></html>`
-	page := docs.Parse(raw, "/user-guide")
+// TestParse_TitleStripsSiteName pins the real automad.org format, which puts the
+// site name first ("Automad / newPagelist"). Slicing on the last " / " kept the
+// wrong half and made every page report the title "Automad".
+func TestParse_TitleStripsSiteName(t *testing.T) {
+	cases := []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{"site name as prefix", "Automad / newPagelist", "newPagelist"},
+		{"page title contains a slash", "Automad / Pipe / match", "Pipe / match"},
+		{"site name as suffix", "User Guide / Automad", "User Guide"},
+		{"site name only", "Automad", "Automad"},
+		{"no site name at all", "Some Page", "Some Page"},
+	}
 
-	if page.Title != "User Guide" {
-		t.Errorf("expected suffix stripped, got %q", page.Title)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := `<html><head><title>` + tc.title + `</title></head><body></body></html>`
+			page := docs.Parse(raw, "/some-page")
+
+			if page.Title != tc.want {
+				t.Errorf("title %q: expected %q, got %q", tc.title, tc.want, page.Title)
+			}
+		})
 	}
 }
 
