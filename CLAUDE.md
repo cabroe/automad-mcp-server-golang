@@ -62,12 +62,17 @@ Talks to Automad v2's **dashboard** JSON API at `/_api` (not a public REST API �
   - `update` is a **full-replace save**: read the current page (`fields` + `unused`), merge the caller's changes, and carry the template forward — v2 rejects a save without a title and resets any field/template not in the payload.
   - **Publish is verified, never assumed:** `/page/publish` can 200 while the page stays a draft, and `/page/data` serves drafts. Confirm via `/page/get-publication-state` (`isPublished`), then clear the render cache (v2 serves stale HTML for ~120s).
   - A title change **regenerates the slug** and the save's `redirect` can report a stale one. Publish by the caller's URL (still valid) and take the authoritative slug from the publish response's `redirect`.
+  - `get` converts v2's raw `template` (an absolute *server* path) to the `package/name` id `update` accepts, closing the read→modify→write loop. Setting a template also writes the page's `theme` field — v2's own behaviour, so the page stops following site-wide theme changes.
+- **Shared write invariants** (same lessons, covered by `TestLiveSharedBridge`):
+  - `Shared::save()` is a full-replace of the **draft** state, so `set` reads the stored record and merges — an unmerged write drops every unmentioned field, `theme` included, and publishing makes that permanent (the site then refuses to render).
+  - The merge base is the stored data only: `/shared/data` answers with every field the active theme supports, unset ones as `""` (70+ keys against a handful stored), so empty values are dropped before merging rather than materialised into the file.
+  - Shared writes land in a draft, so `set` publishes by default (`publish: false` opts out) and verifies via `/shared/get-publication-state`. No cache clear is needed here — `Shared::publish()` calls `Cache::clear()` itself.
 
 Env: `AUTOMAD_URL`, `AUTOMAD_USER`, `AUTOMAD_PASS` enable the bridge; `AUTOMAD_WRITE_MODE`, `AUTOMAD_REQUEST_TIMEOUT_MS` tune it.
 
 ### Testing the bridge against a real instance
 
-`TestLiveBridge` and `TestLiveBridgeMaturity` (`internal/automad/live_test.go`) skip unless `AUTOMAD_URL` is set. To run them, spin up a disposable instance:
+`TestLiveBridge`, `TestLiveBridgeMaturity` and `TestLiveSharedBridge` (`internal/automad/live_test.go`) skip unless `AUTOMAD_URL` is set. To run them, spin up a disposable instance:
 
 ```bash
 D=$(mktemp -d); docker run -d --name av2 -p 127.0.0.1:18080:80 -v "$D":/app automad/automad:v2
@@ -76,7 +81,7 @@ docker exec av2 php automad/console user:create --username admin --password admi
 # console-ready != HTTP-ready; wait for login to 200 before running (else: login EOF)
 until [ "$(curl -so /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18080/_api/session/login --data 'name-or-email=admin&password=admin12345')" = 200 ]; do sleep 1; done
 AUTOMAD_URL=http://127.0.0.1:18080 AUTOMAD_USER=admin AUTOMAD_PASS=admin12345 \
-  go test ./internal/automad -run TestLiveBridge -v
+  go test ./internal/automad -run TestLive -v
 docker rm -f av2   # cleanup
 ```
 

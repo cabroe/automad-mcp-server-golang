@@ -342,6 +342,13 @@ Actions: `get`, `list`, `create`, `update`, `delete`, `move`, `duplicate`,
 `trash_clear`. `update` is a safe full-replace save: it reads the current page
 and merges your changes, so partial updates never drop existing fields.
 
+`get` reports `template` as the `package/name` id (e.g.
+`automad/standard-lite/home`) that `create`/`update` accept, so a page can be
+read, modified, and written back unchanged. Note that setting a `template` also
+pins the page to that package's **theme** — Automad's own behaviour, and the
+same thing the dashboard's template dropdown does — so such a page no longer
+follows a later site-wide theme change.
+
 **Example call:**
 
 ```json
@@ -365,10 +372,21 @@ when `url` is empty or `/`.
 
 ### `automad_shared`
 
-Read or write site-wide shared data fields: `get` returns all shared fields,
-`set` writes the given ones (a targeted write — only the fields you pass change).
+Read or write site-wide shared data fields (`sitename`, `theme`, …):
+`get`, `set`, `publish`, `discard_draft`, `publication_state`.
 
-**Parameters:** `action` (required), `fields` (object, required for `set`).
+`set` is a targeted write: it reads the stored data and merges your fields on
+top, so the ones you omit survive. (Automad's own save replaces the whole
+record, which would otherwise drop every unmentioned field — including `theme`,
+without which the site refuses to render.) Pass an empty string to clear a field.
+
+Shared writes land in a **draft** that visitors do not see, so `set` publishes by
+default and reports the *verified* publication state. Pass `publish: false` to
+keep the change as a draft, then inspect it with `publication_state` and either
+`publish` or `discard_draft` it.
+
+**Parameters:** `action` (required), `fields` (object, required for `set`),
+`publish` (default `true`), `confirm_token` (for `discard_draft`).
 
 ```json
 { "action": "set", "fields": { "sitename": "My Site" } }

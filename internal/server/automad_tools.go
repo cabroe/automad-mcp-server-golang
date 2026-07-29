@@ -23,7 +23,7 @@ type pagesToolInput struct {
 	URL          string         `json:"url,omitempty" jsonschema:"The page slug the action targets (e.g. '/blog/post'). For trash actions this is the trash path returned by trash_list."`
 	TargetURL    string         `json:"target_url,omitempty" jsonschema:"Destination parent page for create and move (e.g. '/')."`
 	Title        string         `json:"title,omitempty" jsonschema:"Page title for create and update."`
-	Template     string         `json:"template,omitempty" jsonschema:"Template id in 'package/name' form (e.g. 'automad/standard-lite/home'). Carried forward on update when omitted."`
+	Template     string         `json:"template,omitempty" jsonschema:"Template id in 'package/name' form (e.g. 'automad/standard-lite/home'), as returned by get. Carried forward on update when omitted. Setting it also pins the page to that package's theme, so the page stops following later site-wide theme changes."`
 	Private      *bool          `json:"private,omitempty" jsonschema:"Whether the page is private (draft-like visibility)."`
 	Tags         []string       `json:"tags,omitempty" jsonschema:"Tags to set on update."`
 	Fields       map[string]any `json:"fields,omitempty" jsonschema:"Arbitrary additional page data fields to set on create or update."`
@@ -46,9 +46,10 @@ type mediaToolInput struct {
 
 // sharedToolInput is the input schema for the automad_shared tool.
 type sharedToolInput struct {
-	Action       string         `json:"action" jsonschema:"The shared-data operation: get, set"`
-	Fields       map[string]any `json:"fields,omitempty" jsonschema:"Field name/value pairs to set (required for set)."`
-	ConfirmToken string         `json:"confirm_token,omitempty" jsonschema:"Confirmation token (not required for shared.set, which is non-destructive)."`
+	Action       string         `json:"action" jsonschema:"The shared-data operation: get, set, publish, discard_draft, publication_state"`
+	Fields       map[string]any `json:"fields,omitempty" jsonschema:"Field name/value pairs to set (required for set). Only these change; the rest of the shared data is preserved. An empty string clears a field."`
+	Publish      *bool          `json:"publish,omitempty" jsonschema:"Whether to publish after set. Defaults to true; with false the change stays a draft that visitors do not see."`
+	ConfirmToken string         `json:"confirm_token,omitempty" jsonschema:"Confirmation token for destructive actions (discard_draft)."`
 }
 
 // configToolInput is the input schema for the automad_config tool.
@@ -82,6 +83,7 @@ func registerPagesTool(s *mcp.Server, svc *automad.Service) {
 Actions: get, list, create, update, delete, move, duplicate, publish, discard_draft, publication_state,
 breadcrumbs, history, history_restore, trash_list, trash_restore, trash_permanently_delete, trash_clear.
 update is a full-replace save that reads the current page and merges your changes, so partial updates are safe.
+get reports template as its 'package/name' id, so a get result can be fed straight back into update.
 Destructive actions (delete, move, discard_draft, history_restore, trash_permanently_delete, trash_clear)
 return a confirm_token in confirm-destructive mode; re-run the same call with that token to execute.
 Requires AUTOMAD_URL/USER/PASS.`,
@@ -113,11 +115,15 @@ delete returns a confirm_token in confirm-destructive mode; re-run with it to ex
 func registerSharedTool(s *mcp.Server, svc *automad.Service) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "automad_shared",
-		Description: `Read or write Automad's shared (site-wide) data fields: get returns all shared fields, set writes the given fields.
-set is a targeted write (only the fields you pass are changed). Requires AUTOMAD_URL/USER/PASS.`,
+		Description: `Read or write Automad's shared (site-wide) data fields, e.g. sitename or theme.
+Actions: get, set, publish, discard_draft, publication_state.
+set is a targeted write: it reads the stored data and merges your fields on top, so fields you do not pass are kept.
+Shared writes land in a draft, so set publishes by default (pass publish=false to keep it a draft) and reports the
+verified publication state. discard_draft is destructive and returns a confirm_token in confirm-destructive mode.
+Requires AUTOMAD_URL/USER/PASS.`,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in sharedToolInput) (*mcp.CallToolResult, any, error) {
 		result, err := svc.Shared(ctx, automad.SharedInput{
-			Action: in.Action, Fields: in.Fields, ConfirmToken: in.ConfirmToken,
+			Action: in.Action, Fields: in.Fields, Publish: in.Publish, ConfirmToken: in.ConfirmToken,
 		})
 		return jsonResult(result, err)
 	})

@@ -1,6 +1,7 @@
 package automad
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,84 @@ func TestTemplateIDFromPath(t *testing.T) {
 			t.Errorf("templateIDFromPath(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+func TestWithTemplateID(t *testing.T) {
+	record := map[string]any{
+		"url":      "/sign-in",
+		"template": "/app/packages/automad/standard-lite/page_full_width_centered.php",
+		"fields":   map[string]any{"title": "Sign In"},
+	}
+	out, ok := withTemplateID(record).(map[string]any)
+	if !ok {
+		t.Fatalf("withTemplateID did not return a record: %T", out)
+	}
+	if got := out["template"]; got != "automad/standard-lite/page_full_width_centered" {
+		t.Errorf("template = %v, want the id form", got)
+	}
+	if out["url"] != "/sign-in" || out["fields"] == nil {
+		t.Errorf("other keys were lost: %v", out)
+	}
+	// The input record must not be mutated.
+	if !strings.HasPrefix(record["template"].(string), "/app/") {
+		t.Errorf("input record was mutated: %v", record["template"])
+	}
+	// Records without a usable template are passed through untouched.
+	if got := withTemplateID(map[string]any{"url": "/x"}); asMapT(t, got)["template"] != nil {
+		t.Errorf("a record without a template gained one: %v", got)
+	}
+	if got := withTemplateID([]any{1}); len(got.([]any)) != 1 {
+		t.Errorf("a non-record payload was rewritten: %v", got)
+	}
+}
+
+func TestStoredSharedFields(t *testing.T) {
+	// /shared/data answers with every supported field, unset ones as "", plus
+	// the theme-independent "unused" ones. Only stored values may be carried
+	// into a merge-save; the empty defaults must not materialise.
+	record := map[string]any{
+		"fields": map[string]any{
+			"sitename":      "New Project",
+			"theme":         "automad/standard-lite",
+			"metaTitle":     "",
+			"customCSS":     "",
+			"checkboxHide":  false,
+			"numberMaxPage": float64(3),
+		},
+		"unused": map[string]any{"legacyField": "keep me", "legacyEmpty": ""},
+	}
+	got := storedSharedFields(record)
+	want := map[string]any{
+		"sitename":      "New Project",
+		"theme":         "automad/standard-lite",
+		"checkboxHide":  false,
+		"numberMaxPage": float64(3),
+		"legacyField":   "keep me",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("stored fields = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("stored[%q] = %v, want %v", k, got[k], v)
+		}
+	}
+	// v2 encodes an empty "unused" set as a JSON array, not an object.
+	if got := storedSharedFields(map[string]any{"fields": map[string]any{"theme": "t"}, "unused": []any{}}); len(got) != 1 {
+		t.Errorf("empty unused array mishandled: %v", got)
+	}
+	if got := storedSharedFields("not a record"); len(got) != 0 {
+		t.Errorf("non-record payload = %v, want empty", got)
+	}
+}
+
+func asMapT(t *testing.T, v any) map[string]any {
+	t.Helper()
+	m, ok := v.(map[string]any)
+	if !ok {
+		t.Fatalf("not a map: %T", v)
+	}
+	return m
 }
 
 func TestSlugFromResult(t *testing.T) {
