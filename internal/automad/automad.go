@@ -8,6 +8,68 @@
 // all set (see LoadConfig). Otherwise Service.Enabled reports false and every
 // tool returns a clear "not configured" message, so the docs/starter-kit/
 // instance tools keep working with zero configuration.
+//
+// # Protocol
+//
+// /_api is v2's dashboard API, not a public REST API — there are no upstream
+// docs for it. Everything below was verified against a live automad/automad:v2
+// instance, so verify any new endpoint the same way rather than trusting docs.
+//
+//   - Auth: POST /_api/session/login (urlencoded name-or-email, password) sets
+//     the session cookie Automad-<md5>. v2 answers 200 for *any* credentials, so
+//     a rejected login is recognised by a non-empty error and an anonymous
+//     session, not by the status code.
+//   - CSRF: scraped from the dashboard HTML meta tag <meta name="csrf"
+//     content="<64-hex>">. /dashboard 301-redirects, and that one request
+//     follows redirects manually — the shared client must not auto-follow, or
+//     the login Set-Cookie is lost.
+//   - Requests: POST bodies are multipart/form-data carrying __csrf__ and
+//     __json__ (a JSON string). Uploads instead use the Dropzone contract
+//     (file plus dz* fields, no __json__).
+//   - Responses: {code, data, error, ...}. A non-empty error means failure even
+//     with HTTP 200. data.message == "No session" means the session died and the
+//     call must be retried after re-authenticating. Add/delete/publish answer
+//     with redirect/success and no data at all.
+//
+// # Write invariants
+//
+// These cost real data to learn; TestLiveBridgeMaturity and TestLiveSharedBridge
+// exist to keep them true.
+//
+//   - Saves are full replacements, for pages and for shared data alike. Both
+//     write paths therefore read the stored record first and merge the caller's
+//     changes on top. An unmerged write silently drops every field it did not
+//     mention — including the theme, without which the site stops rendering
+//     once the change is published.
+//   - Publishing is verified, never assumed. /page/publish can answer 200 while
+//     the page stays a draft, and /page/data serves drafts too, so publication
+//     is confirmed via get-publication-state (isPublished). For pages the render
+//     cache is then cleared (v2 serves stale HTML for ~120s); for shared data it
+//     is not needed, because Shared::publish clears it itself.
+//   - A page title change regenerates the slug, and the save's own redirect can
+//     report a stale one. Publish by the caller's URL, which stays valid, and
+//     take the authoritative slug from the publish response.
+//   - v2 reports a page's template as an absolute server path; the get action
+//     converts it to the package/name id that create and update accept. Setting
+//     a template also writes the page's theme field, so such a page no longer
+//     follows site-wide theme changes.
+//   - /shared/data answers with every field the active theme supports and fills
+//     unset ones with "" (70+ keys against a handful actually stored), so only
+//     non-empty values may be carried into a merge — otherwise every default is
+//     materialised into the stored file.
+//
+// # Testing against a real instance
+//
+// The TestLive* tests in live_test.go skip unless AUTOMAD_URL is set. To run
+// them, spin up a disposable instance:
+//
+//	D=$(mktemp -d); docker run -d --name av2 -p 127.0.0.1:18080:80 -v "$D":/app automad/automad:v2
+//	docker exec av2 php automad/console user:create --username admin --password admin12345 --email a@b.co
+//	# console-ready != HTTP-ready; wait for a login to answer 200 (else: login EOF)
+//	until [ "$(curl -so /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18080/_api/session/login --data 'name-or-email=admin&password=admin12345')" = 200 ]; do sleep 1; done
+//	AUTOMAD_URL=http://127.0.0.1:18080 AUTOMAD_USER=admin AUTOMAD_PASS=admin12345 \
+//	  go test ./internal/automad -run TestLive -v
+//	docker rm -f av2
 package automad
 
 import (
