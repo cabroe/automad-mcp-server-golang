@@ -89,6 +89,13 @@ go install github.com/cabroe/automad-mcp-server-golang/cmd/automad-mcp-server@la
 
 The binary is installed as `automad-mcp-server` in `$(go env GOPATH)/bin` (or `GOBIN`, when configured). Ensure that directory is on your `PATH`. `@latest` resolves the newest published release tag; pin a specific version with e.g. `@v1.0.0`.
 
+Verify the installed build:
+
+```bash
+automad-mcp-server --version
+# automad-mcp-server 0.0.1 (darwin/arm64, go1.26.1)
+```
+
 ### Build from source
 
 ```bash
@@ -191,6 +198,8 @@ In `.cursor/mcp.json` or globally in `~/.cursor/mcp.json`:
 ```
 
 ## Usage
+
+The server takes no arguments — it runs on stdio and is configured through environment variables. The only flags are `--version` (prints `name version (os/arch, go version)` on stdout and exits) and `-h`.
 
 ### Testing with MCP Inspector
 
