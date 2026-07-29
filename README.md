@@ -52,9 +52,9 @@ Operate a **running** Automad v2 site through its dashboard JSON API (`/_api`) â
 
 | Tool | Description |
 |------|-------------|
-| `automad_pages` | Full page lifecycle: `get`, `list`, `create`, `update`, `delete`, `move`, `duplicate`, `publish`, `discard_draft`, `publication_state`, `breadcrumbs`, `history`, `history_restore`, and trash operations. `update` is a safe full-replace save (reads the current page and merges your changes). |
+| `automad_pages` | Full page lifecycle: `get`, `list`, `create`, `update`, `delete`, `move`, `duplicate`, `publish`, `discard_draft`, `publication_state`, `breadcrumbs`, `history`, `history_restore`, and trash operations. `update` is a safe full-replace save (reads the current page and merges your changes); `get` reports `template` as the `package/name` id `update` accepts. |
 | `automad_media` | Manage files: `list`, `upload` (base64), `import` (from an http(s) URL), `delete`. |
-| `automad_shared` | Read/write site-wide shared data fields: `get`, `set`. |
+| `automad_shared` | Read/write site-wide shared data fields: `get`, `set`, `publish`, `discard_draft`, `publication_state`. `set` merges onto the stored data (fields you omit are kept) and publishes by default. |
 | `automad_config` | Inspect and control config/cache: `get` (bootstrap/system info), `update`, `cache_clear`, `cache_purge`. |
 | `automad_packages` | Manage installed themes/extensions (Composer): `list_installed`, `outdated`, `update`, `update_all`, `uninstall`. |
 

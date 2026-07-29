@@ -79,17 +79,24 @@ func pendingResult(p permit) map[string]any {
 
 // SharedInput selects a shared-data action.
 type SharedInput struct {
-	Action       string
-	Fields       map[string]any
+	Action string
+	Fields map[string]any
+	// Publish controls whether set publishes the resulting draft; nil means publish.
+	Publish      *bool
 	ConfirmToken string
 }
 
 var (
-	actSharedGet = action{name: "shared.get", readOnly: true}
-	actSharedSet = action{name: "shared.set"}
+	actSharedGet     = action{name: "shared.get", readOnly: true}
+	actSharedState   = action{name: "shared.publication_state", readOnly: true}
+	actSharedSet     = action{name: "shared.set"}
+	actSharedPublish = action{name: "shared.publish"}
+	actSharedDiscard = action{name: "shared.discard_draft", destructive: true}
 )
 
-// Shared reads or writes Automad's shared (site-wide) data fields.
+// Shared reads or writes Automad's shared (site-wide) data fields. Writes go to
+// the draft state, so set publishes by default — an unpublished draft is
+// invisible to visitors.
 func (s *Service) Shared(ctx context.Context, in SharedInput) (any, error) {
 	if err := s.ensureEnabled(); err != nil {
 		return nil, err
@@ -100,6 +107,13 @@ func (s *Service) Shared(ctx context.Context, in SharedInput) (any, error) {
 			return nil, err
 		}
 		return s.client.post(ctx, APIBase+"/shared/data", map[string]any{})
+
+	case "publication_state":
+		if _, err := s.gate(actSharedState, "/", in.ConfirmToken); err != nil {
+			return nil, err
+		}
+		return s.client.post(ctx, APIBase+"/shared/get-publication-state", map[string]any{})
+
 	case "set":
 		if len(in.Fields) == 0 {
 			return nil, validationError("fields is required for set (a non-empty object)")
@@ -107,10 +121,125 @@ func (s *Service) Shared(ctx context.Context, in SharedInput) (any, error) {
 		if pending, err := s.gate(actSharedSet, "/", in.ConfirmToken); err != nil || pending != nil {
 			return pending, err
 		}
-		return s.client.post(ctx, APIBase+"/shared/data", map[string]any{"data": in.Fields})
+		return s.setShared(ctx, in)
+
+	case "publish":
+		if pending, err := s.gate(actSharedPublish, "/", in.ConfirmToken); err != nil || pending != nil {
+			return pending, err
+		}
+		published, warnings := s.publishSharedAndVerify(ctx)
+		result := map[string]any{"published": published}
+		if len(warnings) > 0 {
+			result["warnings"] = warnings
+		}
+		return result, nil
+
+	case "discard_draft":
+		if pending, err := s.gate(actSharedDiscard, "/", in.ConfirmToken); err != nil || pending != nil {
+			return pending, err
+		}
+		return s.client.post(ctx, APIBase+"/shared/discard-draft", map[string]any{})
+
 	default:
-		return nil, validationError("unknown shared action %q (want: get, set)", in.Action)
+		return nil, validationError(
+			"unknown shared action %q (want: get, set, publish, discard_draft, publication_state)", in.Action)
 	}
+}
+
+// setShared writes shared fields as a merge: v2's Shared::save replaces the whole
+// draft state, so the stored record is read first and the caller's fields merged
+// on top. Without this, every field the caller did not mention is dropped —
+// including the theme, which a publish would then make permanent. This mirrors
+// updatePage, which solves the same full-replace problem for pages.
+func (s *Service) setShared(ctx context.Context, in SharedInput) (any, error) {
+	stored, err := s.readStoredShared(ctx)
+	if err != nil {
+		return nil, err
+	}
+	data := make(map[string]any, len(stored)+len(in.Fields))
+	for k, v := range stored {
+		data[k] = v
+	}
+	for k, v := range in.Fields {
+		data[k] = v
+	}
+	saved, err := s.client.post(ctx, APIBase+"/shared/data", map[string]any{"data": data})
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{"ok": true, "saved": saved}
+	if in.Publish == nil || *in.Publish {
+		published, warnings := s.publishSharedAndVerify(ctx)
+		result["published"] = published
+		if len(warnings) > 0 {
+			result["warnings"] = warnings
+		}
+	}
+	return result, nil
+}
+
+// readStoredShared returns the shared fields currently stored in the draft state
+// (v2 falls back to the published one when there is no draft), which is exactly
+// what a save replaces.
+func (s *Service) readStoredShared(ctx context.Context) (map[string]any, error) {
+	raw, err := s.client.post(ctx, APIBase+"/shared/data", map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	return storedSharedFields(raw), nil
+}
+
+// storedSharedFields extracts the stored values from a /shared/data record.
+// v2 answers with every field the active theme supports, filling unset ones with
+// "" (70+ keys against a handful actually stored), plus the "unused" fields the
+// theme does not declare. Empty values are dropped so that merging the read-back
+// carries only real content forward rather than materialising every default.
+func storedSharedFields(raw any) map[string]any {
+	rec, _ := raw.(map[string]any)
+	stored := map[string]any{}
+	for _, key := range []string{"fields", "unused"} {
+		m, _ := rec[key].(map[string]any)
+		for k, v := range m {
+			if str, ok := v.(string); ok && str == "" {
+				continue
+			}
+			stored[k] = v
+		}
+	}
+	return stored
+}
+
+// publishSharedAndVerify publishes the shared draft and confirms it actually
+// became published rather than trusting the response — the same lesson page
+// publishing taught. Unlike pages no cache clear is needed here: v2's
+// Shared::publish clears the render cache itself. It never throws; a draft that
+// saved but did not publish is reported, not hidden.
+func (s *Service) publishSharedAndVerify(ctx context.Context) (bool, []string) {
+	if _, err := s.client.post(ctx, APIBase+"/shared/publish", map[string]any{}); err != nil {
+		return false, []string{"saved, but publishing failed (" + err.Error() +
+			") — the shared data is still a draft and visitors keep seeing the previous values; retry with the publish action"}
+	}
+	deadline := time.Now().Add(publishPollTimeout)
+	for {
+		state, err := s.client.post(ctx, APIBase+"/shared/get-publication-state", map[string]any{})
+		if err == nil {
+			if m, ok := state.(map[string]any); ok {
+				if published, _ := m["isPublished"].(bool); published {
+					return true, nil
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return false, []string{"publish state check was cancelled: " + ctx.Err().Error()}
+		case <-time.After(publishPollInterval):
+		}
+	}
+	return false, []string{
+		"publishing was accepted but the shared data is not yet reported as published; verify with the publication_state action"}
 }
 
 // --- Config & cache -------------------------------------------------------

@@ -169,7 +169,7 @@ func TestLiveBridgeMaturity(t *testing.T) {
 	// later updates: the template carried forward, the field merged.
 	if _, err := svc.Pages(ctx, automad.PagesInput{
 		Action: "update", URL: cur, Title: "Maturity Draft",
-		Template: "automad/standard-lite/page_full_width_left",
+		Template: seededTemplate,
 		Fields:   map[string]any{"color": "blue"}, Publish: &no,
 	}); err != nil {
 		t.Fatalf("seed template + custom field: %v", err)
@@ -226,9 +226,11 @@ func TestLiveBridgeMaturity(t *testing.T) {
 		if got := pageField(page, "color"); got != "blue" {
 			t.Errorf("custom field dropped by update: color=%q, want blue", got)
 		}
+		// get must report the template as the id update accepts — not v2's raw
+		// server-side path — so the round trip closes.
 		tmpl, _ := asMap(page)["template"].(string)
-		if tmpl == "" || strings.HasSuffix(tmpl, "/.php") {
-			t.Errorf("template was reset by update (would break rendering): %q", tmpl)
+		if tmpl != seededTemplate {
+			t.Errorf("get template = %q, want the id %q (reset by update, or still a raw path)", tmpl, seededTemplate)
 		}
 	})
 
@@ -250,9 +252,154 @@ func TestLiveBridgeMaturity(t *testing.T) {
 	})
 }
 
+// seededTemplate is the template TestLiveBridgeMaturity assigns to its page, in
+// the id form both update accepts and get must report.
+const seededTemplate = "automad/standard-lite/page_full_width_left"
+
+// TestLiveSharedBridge locks in the shared-data contract: a set is a merge (v2's
+// Shared::save replaces the whole draft, so an unmerged write silently drops
+// every field the caller didn't mention — including the theme), writes land in a
+// draft that has to be published to reach visitors, and a draft can be inspected
+// and discarded. Runs unrestricted so discard_draft needs no token juggling.
+func TestLiveSharedBridge(t *testing.T) {
+	if os.Getenv("AUTOMAD_URL") == "" {
+		t.Skip("AUTOMAD_URL not set; skipping live bridge integration test")
+	}
+	t.Setenv("AUTOMAD_WRITE_MODE", "unrestricted")
+	svc := automad.NewService()
+	if !svc.Enabled() {
+		t.Fatal("service not enabled; set AUTOMAD_URL, AUTOMAD_USER, AUTOMAD_PASS")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	before, err := svc.Shared(ctx, automad.SharedInput{Action: "get"})
+	if err != nil {
+		t.Fatalf("shared get: %v", err)
+	}
+	// The theme is the field a dropped write breaks most visibly: without it v2
+	// refuses to render the site at all.
+	theme := sharedField(before, "theme")
+	sitename := sharedField(before, "sitename")
+	if theme == "" || sitename == "" {
+		t.Fatalf("expected a stored theme and sitename to protect, got theme=%q sitename=%q", theme, sitename)
+	}
+	t.Cleanup(func() {
+		_, _ = svc.Shared(context.Background(), automad.SharedInput{
+			Action: "set", Fields: map[string]any{"sitename": sitename},
+		})
+	})
+
+	no := false
+	t.Run("set_merges_and_stays_a_draft_when_asked", func(t *testing.T) {
+		res, err := svc.Shared(ctx, automad.SharedInput{
+			Action: "set", Fields: map[string]any{"sitename": "Shared Merge Probe"}, Publish: &no,
+		})
+		if err != nil {
+			t.Fatalf("shared set: %v", err)
+		}
+		if _, reported := asMap(res)["published"]; reported {
+			t.Errorf("publish=false still reported a publication: %v", res)
+		}
+		after, err := svc.Shared(ctx, automad.SharedInput{Action: "get"})
+		if err != nil {
+			t.Fatalf("shared get: %v", err)
+		}
+		if got := sharedField(after, "sitename"); got != "Shared Merge Probe" {
+			t.Errorf("sitename = %q, want the value just set", got)
+		}
+		if got := sharedField(after, "theme"); got != theme {
+			t.Errorf("set dropped the theme it was not asked to change: %q, want %q", got, theme)
+		}
+		state, err := svc.Shared(ctx, automad.SharedInput{Action: "publication_state"})
+		if err != nil {
+			t.Fatalf("publication_state: %v", err)
+		}
+		if pub, _ := asMap(state)["isPublished"].(bool); pub {
+			t.Errorf("an unpublished set reports isPublished=true: %v", state)
+		}
+	})
+
+	t.Run("discard_draft_reverts_to_published", func(t *testing.T) {
+		if _, err := svc.Shared(ctx, automad.SharedInput{Action: "discard_draft"}); err != nil {
+			t.Fatalf("discard_draft: %v", err)
+		}
+		after, err := svc.Shared(ctx, automad.SharedInput{Action: "get"})
+		if err != nil {
+			t.Fatalf("shared get: %v", err)
+		}
+		if got := sharedField(after, "sitename"); got != sitename {
+			t.Errorf("sitename after discard = %q, want the published %q", got, sitename)
+		}
+	})
+
+	t.Run("set_publishes_by_default_and_verifies_it", func(t *testing.T) {
+		res, err := svc.Shared(ctx, automad.SharedInput{
+			Action: "set", Fields: map[string]any{"sitename": "Shared Publish Probe"},
+		})
+		if err != nil {
+			t.Fatalf("shared set: %v", err)
+		}
+		if pub, _ := asMap(res)["published"].(bool); !pub {
+			t.Fatalf("set did not confirm publication: %v", res)
+		}
+		state, err := svc.Shared(ctx, automad.SharedInput{Action: "publication_state"})
+		if err != nil {
+			t.Fatalf("publication_state: %v", err)
+		}
+		if pub, _ := asMap(state)["isPublished"].(bool); !pub {
+			t.Errorf("set reported published but publication_state disagrees: %v", state)
+		}
+		after, err := svc.Shared(ctx, automad.SharedInput{Action: "get"})
+		if err != nil {
+			t.Fatalf("shared get: %v", err)
+		}
+		if got := sharedField(after, "theme"); got != theme {
+			t.Errorf("published set dropped the theme: %q, want %q", got, theme)
+		}
+	})
+
+	t.Run("publish_is_idempotent", func(t *testing.T) {
+		// Publishing with no pending draft must not fail or lose data.
+		res, err := svc.Shared(ctx, automad.SharedInput{Action: "publish"})
+		if err != nil {
+			t.Fatalf("publish: %v", err)
+		}
+		if pub, _ := asMap(res)["published"].(bool); !pub {
+			t.Errorf("publish without a draft did not report published: %v", res)
+		}
+		if got := sharedFieldOf(t, svc, ctx, "theme"); got != theme {
+			t.Errorf("theme after a no-op publish = %q, want %q", got, theme)
+		}
+	})
+}
+
 func asMap(v any) map[string]any {
 	m, _ := v.(map[string]any)
 	return m
+}
+
+// sharedField reads a value from a /shared/data record, which splits fields into
+// the theme-declared "fields" and the theme-independent "unused" ones.
+func sharedField(record any, key string) string {
+	m := asMap(record)
+	for _, group := range []string{"fields", "unused"} {
+		if g, ok := m[group].(map[string]any); ok {
+			if v, ok := g[key].(string); ok && v != "" {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+func sharedFieldOf(t *testing.T, svc *automad.Service, ctx context.Context, key string) string {
+	t.Helper()
+	res, err := svc.Shared(ctx, automad.SharedInput{Action: "get"})
+	if err != nil {
+		t.Fatalf("shared get: %v", err)
+	}
+	return sharedField(res, key)
 }
 
 // pageField returns a page field value from either the template-declared

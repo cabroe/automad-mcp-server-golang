@@ -71,7 +71,11 @@ func (s *Service) Pages(ctx context.Context, in PagesInput) (any, error) {
 		if _, err := s.gate(actPageGet, in.URL, in.ConfirmToken); err != nil {
 			return nil, err
 		}
-		return s.readPageWithRetry(ctx, normalizeURL(in.URL))
+		record, err := s.readPageWithRetry(ctx, normalizeURL(in.URL))
+		if err != nil {
+			return nil, err
+		}
+		return withTemplateID(record), nil
 
 	case "recent", "list":
 		if _, err := s.gate(actPageRecent, "/", in.ConfirmToken); err != nil {
@@ -519,6 +523,28 @@ func slugFromResult(result any) string {
 		return ""
 	}
 	return normalizeURL(decoded)
+}
+
+// withTemplateID rewrites a page record's `template` from the absolute path v2
+// reports to the `package/name` id that create and update accept, closing the
+// get → modify → update loop. The raw value is the *server's* filesystem path
+// (inside Docker, the container's), so it is of no use to a caller anyway. An
+// unselected template becomes "".
+func withTemplateID(record any) any {
+	rec, ok := record.(map[string]any)
+	if !ok {
+		return record
+	}
+	path, ok := rec["template"].(string)
+	if !ok {
+		return record
+	}
+	out := make(map[string]any, len(rec))
+	for k, v := range rec {
+		out[k] = v
+	}
+	out["template"] = templateIDFromPath(path)
+	return out
 }
 
 // templateIDFromPath converts v2's absolute template path
