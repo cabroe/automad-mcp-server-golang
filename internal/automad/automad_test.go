@@ -274,3 +274,43 @@ func TestLoadConfigDisabledByDefault(t *testing.T) {
 		t.Errorf("default write mode = %q, want confirm-destructive", cfg.WriteMode)
 	}
 }
+
+// TestTrimBootstrapDropsDashboardOnlyKeys pins that config get stays usable as
+// tool output: v2's bootstrap ships ~720 UI translation strings under "text",
+// which was 86% of a 51 KB response and said nothing about the site.
+func TestTrimBootstrapDropsDashboardOnlyKeys(t *testing.T) {
+	raw := map[string]any{
+		"version":   "2.0.0-beta.51",
+		"sitename":  "New Project",
+		"dashboard": "/dashboard",
+		"text":      map[string]any{"aboutAutomad": "About Automad"},
+		"languages": map[string]any{"German": "/lib/german.json"},
+	}
+
+	trimmed, ok := trimBootstrap(raw).(map[string]any)
+	if !ok {
+		t.Fatal("trimBootstrap did not return an object")
+	}
+
+	for _, key := range []string{"text", "languages"} {
+		if _, present := trimmed[key]; present {
+			t.Errorf("key %q should have been dropped", key)
+		}
+	}
+	for _, key := range []string{"version", "sitename", "dashboard"} {
+		if _, present := trimmed[key]; !present {
+			t.Errorf("key %q should have been kept", key)
+		}
+	}
+
+	omitted, _ := trimmed["omitted"].([]string)
+	if len(omitted) != 2 || omitted[0] != "languages" || omitted[1] != "text" {
+		t.Errorf("omitted = %v, want [languages text]", omitted)
+	}
+}
+
+func TestTrimBootstrapPassesThroughNonObjects(t *testing.T) {
+	if got := trimBootstrap("not an object"); got != "not an object" {
+		t.Errorf("non-object payload was altered: %v", got)
+	}
+}

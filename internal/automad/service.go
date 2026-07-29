@@ -2,6 +2,7 @@ package automad
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 )
@@ -269,7 +270,11 @@ func (s *Service) Config(ctx context.Context, in ConfigInput) (any, error) {
 		if _, err := s.gate(actConfigGet, "/", in.ConfirmToken); err != nil {
 			return nil, err
 		}
-		return s.client.get(ctx, APIBase+"/app/bootstrap")
+		raw, err := s.client.get(ctx, APIBase+"/app/bootstrap")
+		if err != nil {
+			return nil, err
+		}
+		return trimBootstrap(raw), nil
 	case "update":
 		if strings.TrimSpace(in.Type) == "" {
 			return nil, validationError("type is required for update")
@@ -295,6 +300,36 @@ func (s *Service) Config(ctx context.Context, in ConfigInput) (any, error) {
 	default:
 		return nil, validationError("unknown config action %q (want: get, update, cache_clear, cache_purge)", in.Action)
 	}
+}
+
+// bootstrapNoise lists /app/bootstrap keys that only serve v2's own dashboard UI.
+// "text" alone is ~720 translation strings and 86% of the payload; "languages"
+// is the language-pack file index. Neither says anything about the site, so both
+// are dropped to keep the response usable as tool output.
+var bootstrapNoise = []string{"text", "languages"}
+
+// trimBootstrap removes dashboard-only keys from a bootstrap response. Anything
+// that is not the expected object is passed through untouched.
+func trimBootstrap(raw any) any {
+	rec, ok := raw.(map[string]any)
+	if !ok {
+		return raw
+	}
+
+	trimmed := make(map[string]any, len(rec))
+	omitted := make([]string, 0, len(bootstrapNoise))
+	for k, v := range rec {
+		if slices.Contains(bootstrapNoise, k) {
+			omitted = append(omitted, k)
+			continue
+		}
+		trimmed[k] = v
+	}
+	if len(omitted) > 0 {
+		slices.Sort(omitted)
+		trimmed["omitted"] = omitted
+	}
+	return trimmed
 }
 
 // --- Package manager (themes/extensions) ----------------------------------

@@ -134,6 +134,7 @@ func registerConfigTool(s *mcp.Server, svc *automad.Service) {
 		Name: "automad_config",
 		Description: `Inspect and control a live Automad v2 site's configuration and cache:
 get (bootstrap/system info), update (write a config section), cache_clear, cache_purge.
+get omits v2's dashboard-only keys ("text", the UI translations, and "languages"); they are named under "omitted".
 cache_purge is destructive and returns a confirm_token in confirm-destructive mode. Requires AUTOMAD_URL/USER/PASS.`,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in configToolInput) (*mcp.CallToolResult, any, error) {
 		result, err := svc.Config(ctx, automad.ConfigInput{
