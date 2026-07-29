@@ -48,15 +48,26 @@ func Parse(rawHTML, url string) *Page {
 	return p
 }
 
+// siteName is the site title automad.org wraps every page title with.
+const siteName = "Automad"
+
+// stripSiteName removes the site name from a <title>, leaving the page's own
+// title. automad.org writes it as a prefix ("Automad / newPagelist"); the
+// suffix form is handled too so a change on the site side cannot silently
+// reintroduce a title of just "Automad". A title that is nothing but the site
+// name (the start page) is kept as is.
+func stripSiteName(title string) string {
+	if trimmed := strings.TrimPrefix(title, siteName+" / "); trimmed != title {
+		return trimmed
+	}
+	return strings.TrimSuffix(title, " / "+siteName)
+}
+
 // extractContent walks the HTML node tree and populates the Page fields.
 func extractContent(n *html.Node, p *Page) {
 	// Extract <title>
 	if n.Type == html.ElementNode && n.Data == "title" && p.Title == "" {
-		p.Title = strings.TrimSpace(textContent(n))
-		// Strip " / Automad" or similar suffixes.
-		if idx := strings.LastIndex(p.Title, " / "); idx != -1 {
-			p.Title = p.Title[:idx]
-		}
+		p.Title = stripSiteName(strings.TrimSpace(textContent(n)))
 	}
 
 	// Skip non-content elements.

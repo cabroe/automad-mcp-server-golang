@@ -15,6 +15,19 @@ type SearchMatch struct {
 	Excerpt string
 }
 
+// SearchResult is the outcome of a Service.SearchCode call. Searched counts the
+// files whose content was actually examined, which is what separates "nothing
+// matched" from "nothing was searched yet" while the cache is still warming.
+type SearchResult struct {
+	// Matches holds every matching line found, in repository tree order.
+	Matches []SearchMatch
+	// Uncached lists supported files skipped because their content was not
+	// cached yet.
+	Uncached []string
+	// Searched is the number of files whose content was examined.
+	Searched int
+}
+
 // lineMatch is an intermediate result from searchLines, before the file
 // path is known to the caller.
 type lineMatch struct {

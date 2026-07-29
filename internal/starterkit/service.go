@@ -360,23 +360,24 @@ func (s *Service) WarmFiles(ctx context.Context) (int, error) {
 // returned separately) rather than fetched on demand, so a single search
 // can't unexpectedly burn through the GitHub rate limit; call WarmFiles (or
 // get_file_content on specific files) first for full coverage.
-func (s *Service) SearchCode(ctx context.Context, query string, extFilter []string) (matches []SearchMatch, uncached []string, err error) {
+func (s *Service) SearchCode(ctx context.Context, query string, extFilter []string) (SearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return nil, nil, fmt.Errorf("query must not be empty")
+		return SearchResult{}, fmt.Errorf("query must not be empty")
 	}
 
 	tree, usedFallback, err := s.ListFiles(ctx)
 	if err != nil {
-		return nil, nil, err
+		return SearchResult{}, err
 	}
 	if usedFallback {
-		return nil, nil, fmt.Errorf("code search requires the live GitHub repository tree")
+		return SearchResult{}, fmt.Errorf("code search requires the live GitHub repository tree")
 	}
 	if tree.Truncated {
-		return nil, nil, fmt.Errorf("GitHub returned a truncated repository tree; code search would be incomplete")
+		return SearchResult{}, fmt.Errorf("GitHub returned a truncated repository tree; code search would be incomplete")
 	}
 
+	var result SearchResult
 	for _, entry := range tree.Entries {
 		if !entry.IsFile() || !isSupportedExtension(entry.Path) {
 			continue
@@ -387,16 +388,17 @@ func (s *Service) SearchCode(ctx context.Context, query string, extFilter []stri
 
 		content, ok := s.cache.GetFile(entry.Path)
 		if !ok {
-			uncached = append(uncached, entry.Path)
+			result.Uncached = append(result.Uncached, entry.Path)
 			continue
 		}
+		result.Searched++
 
 		for _, lm := range searchLines(content, query) {
-			matches = append(matches, SearchMatch{Path: entry.Path, Line: lm.Line, Excerpt: lm.Text})
+			result.Matches = append(result.Matches, SearchMatch{Path: entry.Path, Line: lm.Line, Excerpt: lm.Text})
 		}
 	}
 
-	return matches, uncached, nil
+	return result, nil
 }
 
 // CacheStats returns a human-readable summary of the current cache state.
